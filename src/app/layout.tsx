@@ -4,6 +4,7 @@ import { ThemeProvider } from 'next-themes'
 import NextTopLoader from 'nextjs-toploader'
 import { Analytics } from '@vercel/analytics/react'
 import { ReactQueryDevtools } from '@tanstack/react-query-devtools'
+import { Suspense } from 'react'
 import './globals.css'
 import ReactQueryProvider from '@/providers/ReactQueryProvider'
 
@@ -38,11 +39,13 @@ export default function RootLayout({ children }: RootLayoutProps) {
           enableSystem
           disableTransitionOnChange
         >
-          <ReactQueryProvider>
-            {children}
-            <Analytics />
-            <ReactQueryDevtools initialIsOpen={false} />
-          </ReactQueryProvider>
+          <Suspense fallback={null}>
+            <ReactQueryProvider>
+              {children}
+              <Analytics />
+              <ReactQueryDevtools initialIsOpen={false} />
+            </ReactQueryProvider>
+          </Suspense>
         </ThemeProvider>
       </body>
     </html>
