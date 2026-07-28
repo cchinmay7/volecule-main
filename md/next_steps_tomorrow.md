@@ -5,6 +5,7 @@ Date saved: 2026-07-21
 ## Current status recap
 
 Completed so far:
+
 - Bootstrap schema (`projects`, `sites`, `site_logs`) with RLS and indexes
 - Protected dashboard and navigation (`/protected`, Projects, Sites, Logs)
 - Project/site creation flows with validation and error handling
@@ -30,7 +31,7 @@ Completed so far:
 2. Wire Google Apps Script to the deployed ingestion endpoint
    - Keep form questions engineer-facing only (no `site_id` input)
    - Inject metadata in script:
-     - `site_id`
+     - `site_code` (stable site code from Volecule site config)
      - `shift`
      - `external_submission_id`
      - `submitted_at`

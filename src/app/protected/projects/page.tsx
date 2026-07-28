@@ -1,5 +1,4 @@
 import { createClient } from '@/supabase/server'
-import { Badge } from '@/components/ui/badge'
 import {
   Card,
   CardContent,
@@ -11,6 +10,7 @@ import { Suspense } from 'react'
 import { connection } from 'next/server'
 import { unstable_noStore as noStore } from 'next/cache'
 import { CreateProjectForm, QuickAddSiteForm } from './create-project-form'
+import { EditProjectForm } from './edit-project-form'
 
 type ProjectRow = {
   id: string
@@ -42,14 +42,16 @@ async function ProjectsContent() {
   await connection()
 
   const supabase = await createClient()
-  const [{ data: projects, error: projectsError }, { data: sites, error: sitesError }] =
-    await Promise.all([
-      supabase
-        .from('projects')
-        .select('id, name, client_name, status, created_at')
-        .order('created_at', { ascending: false }),
-      supabase.from('sites').select('id, project_id'),
-    ])
+  const [
+    { data: projects, error: projectsError },
+    { data: sites, error: sitesError },
+  ] = await Promise.all([
+    supabase
+      .from('projects')
+      .select('id, name, client_name, status, created_at')
+      .order('created_at', { ascending: false }),
+    supabase.from('sites').select('id, project_id'),
+  ])
 
   const typedProjects = (projects ?? []) as ProjectRow[]
   const typedSites = (sites ?? []) as SiteRow[]
@@ -81,7 +83,7 @@ async function ProjectsContent() {
         <CardHeader>
           <CardTitle className="text-base">Projects</CardTitle>
           <CardDescription>
-            Existing projects and their configured site counts.
+            Existing projects and their configured site counts. Update in place.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
@@ -92,25 +94,11 @@ async function ProjectsContent() {
             </p>
           ) : typedProjects.length > 0 ? (
             typedProjects.map((project) => (
-              <div
+              <EditProjectForm
                 key={project.id}
-                className="flex items-center justify-between rounded-md border px-3 py-2 text-sm"
-              >
-                <div className="space-y-1">
-                  <p className="font-medium">{project.name}</p>
-                  <p className="text-muted-foreground text-xs">
-                    Client: {project.client_name}
-                  </p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Badge variant="outline">
-                    {siteCountByProject[project.id] ?? 0} sites
-                  </Badge>
-                  <Badge variant={project.status === 'active' ? 'default' : 'secondary'}>
-                    {project.status}
-                  </Badge>
-                </div>
-              </div>
+                project={project}
+                siteCount={siteCountByProject[project.id] ?? 0}
+              />
             ))
           ) : (
             <p className="text-muted-foreground text-sm">

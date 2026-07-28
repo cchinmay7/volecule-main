@@ -39,6 +39,18 @@ export function CreateSiteForm({ projects }: { projects: ProjectOption[] }) {
         <Input id="name" name="name" placeholder="Tower A - Floor 3" required />
       </div>
       <div className="space-y-2">
+        <Label htmlFor="public_code">Site code (optional)</Label>
+        <Input
+          id="public_code"
+          name="public_code"
+          placeholder="Auto-generated if left blank"
+        />
+        <p className="text-muted-foreground text-xs">
+          Use this stable code in form links/payloads so Apps Script can send
+          site_code instead of hardcoded site IDs.
+        </p>
+      </div>
+      <div className="space-y-2">
         <Label htmlFor="timezone">Timezone</Label>
         <Input
           id="timezone"
@@ -57,11 +69,19 @@ export function CreateSiteForm({ projects }: { projects: ProjectOption[] }) {
       </div>
       <div className="space-y-2">
         <Label htmlFor="reminder_time_morning">Morning reminder</Label>
-        <Input id="reminder_time_morning" name="reminder_time_morning" type="time" />
+        <Input
+          id="reminder_time_morning"
+          name="reminder_time_morning"
+          type="time"
+        />
       </div>
       <div className="space-y-2">
         <Label htmlFor="reminder_time_evening">Evening reminder</Label>
-        <Input id="reminder_time_evening" name="reminder_time_evening" type="time" />
+        <Input
+          id="reminder_time_evening"
+          name="reminder_time_evening"
+          type="time"
+        />
       </div>
       <div className="space-y-2">
         <Label htmlFor="whatsapp_target">WhatsApp target</Label>
