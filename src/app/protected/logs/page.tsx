@@ -1,4 +1,6 @@
+import Link from 'next/link'
 import { Badge } from '@/components/ui/badge'
+import { buttonVariants } from '@/components/ui/button'
 import {
   Card,
   CardContent,
@@ -7,13 +9,21 @@ import {
   CardTitle,
 } from '@/components/ui/card'
 import { createClient } from '@/supabase/server'
+import { cn } from '@/utils/tailwind'
 import { Suspense } from 'react'
 import { connection } from 'next/server'
 import { unstable_noStore as noStore } from 'next/cache'
 
+type ProjectRow = {
+  id: string
+  name: string
+}
+
 type SiteRow = {
   id: string
   name: string
+  project_id: string
+  public_code: string | null
 }
 
 type SiteLogRow = {
@@ -23,6 +33,7 @@ type SiteLogRow = {
   shift: 'morning' | 'evening'
   source: 'google_form' | 'manual'
   created_at: string
+  free_notes: string | null
 }
 
 export default async function LogsPage() {
@@ -49,28 +60,38 @@ async function LogsContent() {
   await connection()
 
   const supabase = await createClient()
-  const [{ data: sites, error: sitesError }, { data: logs, error: logsError }] =
-    await Promise.all([
-      supabase.from('sites').select('id, name'),
-      supabase
-        .from('site_logs')
-        .select('id, site_id, log_date, shift, source, created_at')
-        .order('created_at', { ascending: false })
-        .limit(30),
-    ])
+  const [
+    { data: projects, error: projectsError },
+    { data: sites, error: sitesError },
+    { data: logs, error: logsError },
+  ] = await Promise.all([
+    supabase.from('projects').select('id, name'),
+    supabase.from('sites').select('id, name, project_id, public_code'),
+    supabase
+      .from('site_logs')
+      .select('id, site_id, log_date, shift, source, created_at, free_notes')
+      .order('created_at', { ascending: false })
+      .limit(50),
+  ])
 
-  const siteNameById = Object.fromEntries(
-    ((sites ?? []) as SiteRow[]).map((site) => [site.id, site.name]),
+  const projectNameById = Object.fromEntries(
+    ((projects ?? []) as ProjectRow[]).map((project) => [
+      project.id,
+      project.name,
+    ]),
+  )
+  const siteById = Object.fromEntries(
+    ((sites ?? []) as SiteRow[]).map((site) => [site.id, site]),
   )
   const typedLogs = (logs ?? []) as SiteLogRow[]
-  const hasSchemaError = Boolean(sitesError || logsError)
+  const hasSchemaError = Boolean(projectsError || sitesError || logsError)
 
   return (
     <Card>
       <CardHeader>
         <CardTitle className="text-base">Site logs</CardTitle>
         <CardDescription>
-          Recent morning/evening submissions captured for all sites.
+          Recent morning/evening submissions with project visibility.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -80,27 +101,50 @@ async function LogsContent() {
             refresh this page.
           </p>
         ) : typedLogs.length > 0 ? (
-          typedLogs.map((log) => (
-            <div
-              key={log.id}
-              className="flex flex-wrap items-center justify-between gap-2 rounded-md border px-3 py-2 text-sm"
-            >
-              <div className="space-y-1">
-                <p className="font-medium">
-                  {siteNameById[log.site_id] ?? log.site_id}
-                </p>
-                <p className="text-muted-foreground text-xs">
-                  {log.log_date} • {log.shift}
-                </p>
+          typedLogs.map((log) => {
+            const site = siteById[log.site_id]
+            const projectName = site
+              ? (projectNameById[site.project_id] ?? site.project_id)
+              : 'Unknown project'
+
+            return (
+              <div
+                key={log.id}
+                className="space-y-3 rounded-md border px-3 py-3 text-sm"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <p className="font-medium">{site?.name ?? log.site_id}</p>
+                    <p className="text-muted-foreground text-xs">
+                      Project: {projectName} • Code: {site?.public_code ?? '--'}
+                    </p>
+                    <p className="text-muted-foreground text-xs">
+                      {log.log_date} • {log.shift}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Badge variant="outline">{log.source}</Badge>
+                    <span className="text-muted-foreground text-xs">
+                      {new Date(log.created_at).toLocaleString()}
+                    </span>
+                  </div>
+                </div>
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-muted-foreground line-clamp-1 text-xs">
+                    {log.free_notes ?? 'No notes'}
+                  </p>
+                  <Link
+                    href={`/protected/logs/${log.id}`}
+                    className={cn(
+                      buttonVariants({ variant: 'outline', size: 'sm' }),
+                    )}
+                  >
+                    View details
+                  </Link>
+                </div>
               </div>
-              <div className="flex items-center gap-2">
-                <Badge variant="outline">{log.source}</Badge>
-                <span className="text-muted-foreground text-xs">
-                  {log.created_at}
-                </span>
-              </div>
-            </div>
-          ))
+            )
+          })
         ) : (
           <p className="text-muted-foreground text-sm">
             No site logs yet. Google Forms ingestion will populate this feed.

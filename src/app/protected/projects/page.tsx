@@ -1,4 +1,6 @@
 import { createClient } from '@/supabase/server'
+import Link from 'next/link'
+import { Badge } from '@/components/ui/badge'
 import {
   Card,
   CardContent,
@@ -6,11 +8,12 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
+import { buttonVariants } from '@/components/ui/button'
+import { cn } from '@/utils/tailwind'
 import { Suspense } from 'react'
 import { connection } from 'next/server'
 import { unstable_noStore as noStore } from 'next/cache'
-import { CreateProjectForm, QuickAddSiteForm } from './create-project-form'
-import { EditProjectForm } from './edit-project-form'
+import { CreateProjectForm } from './create-project-form'
 
 type ProjectRow = {
   id: string
@@ -83,7 +86,7 @@ async function ProjectsContent() {
         <CardHeader>
           <CardTitle className="text-base">Projects</CardTitle>
           <CardDescription>
-            Existing projects and their configured site counts. Update in place.
+            Browse projects and open full details.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
@@ -94,38 +97,44 @@ async function ProjectsContent() {
             </p>
           ) : typedProjects.length > 0 ? (
             typedProjects.map((project) => (
-              <EditProjectForm
+              <div
                 key={project.id}
-                project={project}
-                siteCount={siteCountByProject[project.id] ?? 0}
-              />
+                className="space-y-3 rounded-md border px-3 py-3 text-sm"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <p className="font-medium">{project.name}</p>
+                    <p className="text-muted-foreground text-xs">
+                      Client: {project.client_name}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Badge variant="outline">
+                      {siteCountByProject[project.id] ?? 0} sites
+                    </Badge>
+                    <Badge
+                      variant={
+                        project.status === 'active' ? 'default' : 'secondary'
+                      }
+                    >
+                      {project.status}
+                    </Badge>
+                  </div>
+                </div>
+                <Link
+                  href={`/protected/projects/${project.id}`}
+                  className={cn(
+                    buttonVariants({ variant: 'outline', size: 'sm' }),
+                  )}
+                >
+                  View details
+                </Link>
+              </div>
             ))
           ) : (
             <p className="text-muted-foreground text-sm">
               No projects yet. Create the first project from the form.
             </p>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card className="lg:col-span-2">
-        <CardHeader>
-          <CardTitle className="text-base">Quick add site</CardTitle>
-          <CardDescription>
-            Create a site under an existing project with reminder configuration.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {hasSchemaError ? (
-            <p className="text-muted-foreground text-sm">
-              Run the bootstrap SQL before adding sites.
-            </p>
-          ) : typedProjects.length === 0 ? (
-            <p className="text-muted-foreground text-sm">
-              Create a project before adding a site.
-            </p>
-          ) : (
-            <QuickAddSiteForm projects={typedProjects} />
           )}
         </CardContent>
       </Card>
