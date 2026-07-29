@@ -2,24 +2,48 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/supabase/admin'
 
 /**
- * POST /api/reminders/send
+ * /api/reminders/send
  *
  * Call this from a cron job (e.g. Vercel Cron or Supabase pg_cron) every minute.
  * It reads all active sites whose morning or evening reminder time matches
  * the current time in the site's local timezone, then sends a WhatsApp message
  * with the correct Google Form link.
  *
- * Protected by the same shared secret used for ingestion.
- * Header: X-Volecule-Secret: <INGESTION_SHARED_SECRET>
+ * Supports either:
+ * - Header: Authorization: Bearer <CRON_SECRET> (Vercel Cron)
+ * - Header: X-Volecule-Secret: <INGESTION_SHARED_SECRET> (manual/internal calls)
  */
-export async function POST(req: NextRequest) {
-  const secret = req.headers.get('x-volecule-secret')
-  const expectedSecret = process.env.INGESTION_SHARED_SECRET
-
-  if (!expectedSecret || !secret || secret !== expectedSecret) {
+export async function GET(req: NextRequest) {
+  if (!isAuthorized(req)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
+  return runReminderDispatch()
+}
 
+export async function POST(req: NextRequest) {
+  if (!isAuthorized(req)) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+  return runReminderDispatch()
+}
+
+function isAuthorized(req: NextRequest): boolean {
+  const authHeader = req.headers.get('authorization')
+  const cronSecret = process.env.CRON_SECRET
+  const isCronAuthorized = Boolean(
+    cronSecret && authHeader === `Bearer ${cronSecret}`,
+  )
+
+  const secret = req.headers.get('x-volecule-secret')
+  const expectedSecret = process.env.INGESTION_SHARED_SECRET
+  const isIngestionAuthorized = Boolean(
+    expectedSecret && secret === expectedSecret,
+  )
+
+  return isCronAuthorized || isIngestionAuthorized
+}
+
+async function runReminderDispatch() {
   const supabase = createAdminClient()
 
   const { data: sites, error } = await supabase

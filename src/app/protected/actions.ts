@@ -439,7 +439,17 @@ export async function deleteProjectAction(
   }
 
   const supabase = await createClient()
-  const { data, error } = await supabase
+  const { data: existingProject, error: existingProjectError } = await supabase
+    .from('projects')
+    .select('id')
+    .eq('id', projectId)
+    .maybeSingle()
+
+  if (existingProjectError || !existingProject) {
+    return { success: false, error: 'Project not found.' }
+  }
+
+  const { data: deletedProject, error } = await supabase
     .from('projects')
     .delete()
     .eq('id', projectId)
@@ -450,8 +460,11 @@ export async function deleteProjectAction(
     return { success: false, error: error.message }
   }
 
-  if (!data) {
-    return { success: false, error: 'Project not found.' }
+  if (!deletedProject) {
+    return {
+      success: false,
+      error: 'Project exists but could not be deleted due to database policy.',
+    }
   }
 
   revalidatePath('/protected')
@@ -488,7 +501,7 @@ export async function deleteSiteAction(
     return { success: false, error: 'Site not found.' }
   }
 
-  const { data, error } = await supabase
+  const { data: deletedSite, error } = await supabase
     .from('sites')
     .delete()
     .eq('id', siteId)
@@ -499,8 +512,11 @@ export async function deleteSiteAction(
     return { success: false, error: error.message }
   }
 
-  if (!data) {
-    return { success: false, error: 'Site not found.' }
+  if (!deletedSite) {
+    return {
+      success: false,
+      error: 'Site exists but could not be deleted due to database policy.',
+    }
   }
 
   revalidatePath('/protected')
