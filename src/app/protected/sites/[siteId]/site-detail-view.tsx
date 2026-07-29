@@ -3,7 +3,11 @@
 import Link from 'next/link'
 import { useActionState, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { deleteSiteAction, updateSiteAction } from '@/app/protected/actions'
+import {
+  deleteSiteAction,
+  sendSiteReminderAction,
+  updateSiteAction,
+} from '@/app/protected/actions'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -65,6 +69,30 @@ export function SiteDetailView({
       if (result.success) router.push('/protected/sites')
       return result
     },
+    null,
+  )
+
+  const [
+    morningReminderState,
+    sendMorningReminderAction,
+    sendMorningReminderPending,
+  ] = useActionState(
+    async (
+      prevState: Awaited<ReturnType<typeof sendSiteReminderAction>> | null,
+      formData: FormData,
+    ) => sendSiteReminderAction(prevState, formData),
+    null,
+  )
+
+  const [
+    eveningReminderState,
+    sendEveningReminderAction,
+    sendEveningReminderPending,
+  ] = useActionState(
+    async (
+      prevState: Awaited<ReturnType<typeof sendSiteReminderAction>> | null,
+      formData: FormData,
+    ) => sendSiteReminderAction(prevState, formData),
     null,
   )
   const projectName = projects.find(
@@ -244,6 +272,61 @@ export function SiteDetailView({
           </Button>
         </Link>
       </div>
+
+      <section className="space-y-3 rounded-md border p-4">
+        <h2 className="text-base font-semibold">Send reminder now</h2>
+        <div className="flex flex-wrap gap-3">
+          <form action={sendMorningReminderAction} className="space-y-2">
+            <input type="hidden" name="site_id" value={site.id} />
+            <input type="hidden" name="shift" value="morning" />
+            <Button
+              type="submit"
+              variant="outline"
+              disabled={
+                sendMorningReminderPending ||
+                updatePending ||
+                deletePending ||
+                sendEveningReminderPending
+              }
+            >
+              {sendMorningReminderPending ? 'Sending…' : 'Send morning form'}
+            </Button>
+            {morningReminderState && !morningReminderState.success && (
+              <p className="text-destructive text-sm">
+                {morningReminderState.error}
+              </p>
+            )}
+            {morningReminderState?.success && (
+              <p className="text-sm text-green-600">Morning reminder sent.</p>
+            )}
+          </form>
+
+          <form action={sendEveningReminderAction} className="space-y-2">
+            <input type="hidden" name="site_id" value={site.id} />
+            <input type="hidden" name="shift" value="evening" />
+            <Button
+              type="submit"
+              variant="outline"
+              disabled={
+                sendEveningReminderPending ||
+                updatePending ||
+                deletePending ||
+                sendMorningReminderPending
+              }
+            >
+              {sendEveningReminderPending ? 'Sending…' : 'Send evening form'}
+            </Button>
+            {eveningReminderState && !eveningReminderState.success && (
+              <p className="text-destructive text-sm">
+                {eveningReminderState.error}
+              </p>
+            )}
+            {eveningReminderState?.success && (
+              <p className="text-sm text-green-600">Evening reminder sent.</p>
+            )}
+          </form>
+        </div>
+      </section>
 
       <form
         action={deleteAction}

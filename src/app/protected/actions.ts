@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache'
 
 import { createClient } from '@/supabase/server'
+import { buildReminderMessage, sendWhatsAppTemplate } from '@/utils/reminders'
 
 const DEFAULT_SITE_TIMEZONE = 'Asia/Kolkata'
 const HH_MM_REGEX = /^([01]\d|2[0-3]):[0-5]\d$/
@@ -424,6 +425,78 @@ export async function updateSiteAction(
   return { success: true }
 }
 
+export async function sendSiteReminderAction(
+  _prev: ActionResult | null,
+  formData: FormData,
+): Promise<ActionResult> {
+  const auth = await getAuthenticatedUserId()
+  if ('error' in auth) {
+    return { success: false, error: auth.error }
+  }
+
+  const siteId = formData.get('site_id')?.toString().trim()
+  if (!siteId) {
+    return { success: false, error: 'Site id is required.' }
+  }
+
+  const shiftRaw = formData.get('shift')?.toString().trim()
+  if (shiftRaw !== 'morning' && shiftRaw !== 'evening') {
+    return { success: false, error: 'Shift must be morning or evening.' }
+  }
+
+  const supabase = await createClient()
+  const { data: site, error: siteError } = await supabase
+    .from('sites')
+    .select(
+      'id, name, status, whatsapp_target, google_form_url_morning, google_form_url_evening',
+    )
+    .eq('id', siteId)
+    .maybeSingle()
+
+  if (siteError || !site) {
+    return { success: false, error: 'Site not found.' }
+  }
+
+  if (site.status !== 'active') {
+    return { success: false, error: 'Site must be active to send reminders.' }
+  }
+
+  if (!site.whatsapp_target) {
+    return { success: false, error: 'WhatsApp target is required.' }
+  }
+
+  const formUrl =
+    shiftRaw === 'morning'
+      ? site.google_form_url_morning
+      : site.google_form_url_evening
+
+  if (!formUrl) {
+    return {
+      success: false,
+      error:
+        shiftRaw === 'morning'
+          ? 'Morning form URL is required.'
+          : 'Evening form URL is required.',
+    }
+  }
+
+  const message = buildReminderMessage(site.name, shiftRaw, formUrl)
+  const sent = await sendWhatsAppTemplate(
+    site.whatsapp_target,
+    formUrl,
+    message,
+  )
+
+  if (!sent) {
+    return {
+      success: false,
+      error:
+        'Failed to send reminder. Check WhatsApp credentials and recipient access.',
+    }
+  }
+
+  return { success: true }
+}
 export async function deleteProjectAction(
   _prev: ActionResult | null,
   formData: FormData,
