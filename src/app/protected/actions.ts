@@ -444,7 +444,7 @@ export async function deleteProjectAction(
     .delete()
     .eq('id', projectId)
     .select('id')
-    .single()
+    .maybeSingle()
 
   if (error) {
     return { success: false, error: error.message }
@@ -482,7 +482,7 @@ export async function deleteSiteAction(
     .from('sites')
     .select('project_id')
     .eq('id', siteId)
-    .single()
+    .maybeSingle()
 
   if (existingSiteError || !existingSite) {
     return { success: false, error: 'Site not found.' }
@@ -493,7 +493,7 @@ export async function deleteSiteAction(
     .delete()
     .eq('id', siteId)
     .select('id')
-    .single()
+    .maybeSingle()
 
   if (error) {
     return { success: false, error: error.message }
