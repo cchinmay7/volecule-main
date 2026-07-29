@@ -95,7 +95,9 @@ async function LogsContent() {
               </div>
               <div className="flex items-center gap-2">
                 <Badge variant="outline">{log.source}</Badge>
-                <span className="text-muted-foreground text-xs">{log.created_at}</span>
+                <span className="text-muted-foreground text-xs">
+                  {log.created_at}
+                </span>
               </div>
             </div>
           ))

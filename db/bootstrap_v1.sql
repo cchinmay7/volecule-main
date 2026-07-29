@@ -13,6 +13,7 @@ create table if not exists public.sites (
   id uuid primary key default gen_random_uuid(),
   project_id uuid not null references public.projects (id) on delete cascade,
   name text not null,
+  public_code text,
   timezone text not null default 'Asia/Kolkata',
   google_form_url_morning text,
   google_form_url_evening text,
@@ -22,6 +23,28 @@ create table if not exists public.sites (
   status text not null default 'active',
   created_at timestamptz not null default now()
 );
+
+alter table public.sites
+  add column if not exists public_code text;
+
+-- Backfill existing sites with deterministic, unique public codes once.
+-- Safe to re-run: only updates rows where public_code is currently null.
+update public.sites
+set public_code = concat(
+  left(
+    coalesce(
+      nullif(
+        trim(both '-' from regexp_replace(upper(name), '[^A-Z0-9]+', '-', 'g')),
+        ''
+      ),
+      'SITE'
+    ),
+    24
+  ),
+  '-',
+  upper(substr(replace(id::text, '-', ''), 1, 8))
+)
+where public_code is null;
 
 create table if not exists public.site_logs (
   id uuid primary key default gen_random_uuid(),
@@ -41,6 +64,10 @@ create table if not exists public.site_logs (
 -- Uniqueness constraints
 create unique index if not exists site_logs_site_date_shift_unique
   on public.site_logs (site_id, log_date, shift);
+
+create unique index if not exists sites_public_code_unique
+  on public.sites (public_code)
+  where public_code is not null;
 
 create unique index if not exists site_logs_site_external_submission_unique
   on public.site_logs (site_id, external_submission_id)

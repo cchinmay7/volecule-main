@@ -9,7 +9,8 @@ import { createAdminClient } from '@/supabase/admin'
  *   X-Volecule-Secret: <INGESTION_SHARED_SECRET>
  *
  * Required body fields:
- *   site_id            — UUID of the site (hidden form field)
+ *   site_id            — UUID of the site (preferred when available), OR
+ *   site_code          — stable public code of the site (e.g. BLR-001)
  *   shift              — "morning" | "evening" (hidden form field)
  *   external_submission_id — unique ID from Apps Script (timestamp+formId)
  *   submitted_at       — ISO 8601 timestamp of the form submission
@@ -28,7 +29,10 @@ export async function POST(req: NextRequest) {
 
   if (!expectedSecret) {
     console.error('[ingestion] INGESTION_SHARED_SECRET is not set')
-    return NextResponse.json({ error: 'Server misconfiguration' }, { status: 500 })
+    return NextResponse.json(
+      { error: 'Server misconfiguration' },
+      { status: 500 },
+    )
   }
 
   if (!secret || secret !== expectedSecret) {
@@ -43,11 +47,24 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
   }
 
-  const { site_id, shift, external_submission_id, submitted_at, form_values } = body
+  const {
+    site_id,
+    site_code,
+    shift,
+    external_submission_id,
+    submitted_at,
+    form_values,
+  } = body
 
   // 3. Validate required fields
-  if (!site_id || typeof site_id !== 'string') {
-    return NextResponse.json({ error: 'Missing or invalid site_id' }, { status: 400 })
+  const siteId = typeof site_id === 'string' ? site_id.trim() : ''
+  const siteCode = typeof site_code === 'string' ? site_code.trim() : ''
+
+  if (!siteId && !siteCode) {
+    return NextResponse.json(
+      { error: 'Provide either site_id or site_code' },
+      { status: 400 },
+    )
   }
 
   if (shift !== 'morning' && shift !== 'evening') {
@@ -82,14 +99,25 @@ export async function POST(req: NextRequest) {
   // 4. Look up site and resolve log_date using site timezone
   const supabase = createAdminClient()
 
-  const { data: site, error: siteError } = await supabase
+  const query = supabase
     .from('sites')
-    .select('id, status, timezone')
-    .eq('id', site_id)
-    .single()
+    .select('id, public_code, status, timezone')
+  const { data: site, error: siteError } = siteId
+    ? await query.eq('id', siteId).single()
+    : await query.eq('public_code', siteCode).single()
 
   if (siteError || !site) {
-    return NextResponse.json({ error: 'Unknown site_id' }, { status: 400 })
+    const idType = siteId ? 'site_id' : 'site_code'
+    return NextResponse.json({ error: `Unknown ${idType}` }, { status: 400 })
+  }
+
+  if (siteId && siteCode && site.public_code !== siteCode) {
+    return NextResponse.json(
+      {
+        error: 'site_id and site_code do not match the same site',
+      },
+      { status: 400 },
+    )
   }
 
   if (site.status !== 'active') {
@@ -112,7 +140,7 @@ export async function POST(req: NextRequest) {
   // 6. Upsert — idempotent on (site_id, log_date, shift)
   const { error: upsertError } = await supabase.from('site_logs').upsert(
     {
-      site_id,
+      site_id: site.id,
       log_date: logDate,
       shift,
       headcount_json: headcountJson,
@@ -134,7 +162,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Failed to save log' }, { status: 500 })
   }
 
-  return NextResponse.json({ ok: true, log_date: logDate, shift }, { status: 200 })
+  return NextResponse.json(
+    { ok: true, log_date: logDate, shift },
+    { status: 200 },
+  )
 }
 
 /**
@@ -156,7 +187,11 @@ function toLocalDateString(date: Date, timezone: string): string {
 
     if (year && month && day) return `${year}-${month}-${day}`
   } catch {
-    console.warn('[ingestion] Invalid timezone', timezone, '— falling back to UTC')
+    console.warn(
+      '[ingestion] Invalid timezone',
+      timezone,
+      '— falling back to UTC',
+    )
   }
   return date.toISOString().slice(0, 10)
 }

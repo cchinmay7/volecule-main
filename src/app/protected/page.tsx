@@ -31,7 +31,9 @@ export default function ProtectedPage() {
   return (
     <Suspense
       fallback={
-        <div className="text-muted-foreground text-sm">Loading dashboard...</div>
+        <div className="text-muted-foreground text-sm">
+          Loading dashboard...
+        </div>
       }
     >
       <ProtectedDashboardContent />
@@ -75,35 +77,41 @@ async function ProtectedDashboardContent() {
   const siteStatusRows = await Promise.all(
     typedSites.map(async (site) => {
       const localDate = toLocalDateString(new Date(), site.timezone)
-      const [{ data: dayLogs, error: dayLogsError }, { data: lastLog, error: lastLogError }] =
-        await Promise.all([
-          supabase
-            .from('site_logs')
-            .select('shift, created_at')
-            .eq('site_id', site.id)
-            .eq('log_date', localDate),
-          supabase
-            .from('site_logs')
-            .select('created_at')
-            .eq('site_id', site.id)
-            .order('created_at', { ascending: false })
-            .limit(1),
-        ])
+      const [
+        { data: dayLogs, error: dayLogsError },
+        { data: lastLog, error: lastLogError },
+      ] = await Promise.all([
+        supabase
+          .from('site_logs')
+          .select('shift, created_at')
+          .eq('site_id', site.id)
+          .eq('log_date', localDate),
+        supabase
+          .from('site_logs')
+          .select('created_at')
+          .eq('site_id', site.id)
+          .order('created_at', { ascending: false })
+          .limit(1),
+      ])
 
       const hasQueryError = Boolean(dayLogsError || lastLogError)
 
-      const hasMorning = Boolean(dayLogs?.some((log) => log.shift === 'morning'))
-      const hasEvening = Boolean(dayLogs?.some((log) => log.shift === 'evening'))
+      const hasMorning = Boolean(
+        dayLogs?.some((log) => log.shift === 'morning'),
+      )
+      const hasEvening = Boolean(
+        dayLogs?.some((log) => log.shift === 'evening'),
+      )
 
       const morningConfigured = Boolean(
         site.reminder_time_morning &&
-          site.google_form_url_morning &&
-          site.whatsapp_target,
+        site.google_form_url_morning &&
+        site.whatsapp_target,
       )
       const eveningConfigured = Boolean(
         site.reminder_time_evening &&
-          site.google_form_url_evening &&
-          site.whatsapp_target,
+        site.google_form_url_evening &&
+        site.whatsapp_target,
       )
 
       return {
@@ -216,51 +224,63 @@ async function ProtectedDashboardContent() {
             </CardHeader>
             <CardContent className="space-y-3">
               {statusCardError ? (
-              <p className="text-muted-foreground text-sm">
-                Could not load all site statuses. Try refreshing the page.
-              </p>
+                <p className="text-muted-foreground text-sm">
+                  Could not load all site statuses. Try refreshing the page.
+                </p>
               ) : siteStatusRows.length > 0 ? (
-              siteStatusRows.map((site) => (
-                <div
-                  key={site.siteId}
-                  className="rounded-md border px-3 py-3 text-sm"
-                >
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <p className="font-medium">{site.siteName}</p>
-                    <span className="text-muted-foreground text-xs">
-                      Date: {site.localDate}
-                    </span>
+                siteStatusRows.map((site) => (
+                  <div
+                    key={site.siteId}
+                    className="rounded-md border px-3 py-3 text-sm"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="font-medium">{site.siteName}</p>
+                      <span className="text-muted-foreground text-xs">
+                        Date: {site.localDate}
+                      </span>
+                    </div>
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      <Badge
+                        variant={site.hasMorning ? 'default' : 'destructive'}
+                      >
+                        Morning: {site.hasMorning ? 'Submitted' : 'Missing'}
+                      </Badge>
+                      <Badge
+                        variant={site.hasEvening ? 'default' : 'destructive'}
+                      >
+                        Evening: {site.hasEvening ? 'Submitted' : 'Missing'}
+                      </Badge>
+                    </div>
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      <Badge
+                        variant={
+                          site.morningConfigured ? 'secondary' : 'outline'
+                        }
+                      >
+                        Morning reminder:{' '}
+                        {site.morningConfigured ? 'Configured' : 'Incomplete'}
+                      </Badge>
+                      <Badge
+                        variant={
+                          site.eveningConfigured ? 'secondary' : 'outline'
+                        }
+                      >
+                        Evening reminder:{' '}
+                        {site.eveningConfigured ? 'Configured' : 'Incomplete'}
+                      </Badge>
+                    </div>
+                    <p className="text-muted-foreground mt-2 text-xs">
+                      Last submission:{' '}
+                      {site.lastSubmittedAt
+                        ? new Date(site.lastSubmittedAt).toLocaleString()
+                        : 'No submissions yet'}
+                    </p>
                   </div>
-                  <div className="mt-2 flex flex-wrap items-center gap-2">
-                    <Badge variant={site.hasMorning ? 'default' : 'destructive'}>
-                      Morning: {site.hasMorning ? 'Submitted' : 'Missing'}
-                    </Badge>
-                    <Badge variant={site.hasEvening ? 'default' : 'destructive'}>
-                      Evening: {site.hasEvening ? 'Submitted' : 'Missing'}
-                    </Badge>
-                  </div>
-                  <div className="mt-2 flex flex-wrap items-center gap-2">
-                    <Badge variant={site.morningConfigured ? 'secondary' : 'outline'}>
-                      Morning reminder:{' '}
-                      {site.morningConfigured ? 'Configured' : 'Incomplete'}
-                    </Badge>
-                    <Badge variant={site.eveningConfigured ? 'secondary' : 'outline'}>
-                      Evening reminder:{' '}
-                      {site.eveningConfigured ? 'Configured' : 'Incomplete'}
-                    </Badge>
-                  </div>
-                  <p className="text-muted-foreground mt-2 text-xs">
-                    Last submission:{' '}
-                    {site.lastSubmittedAt
-                      ? new Date(site.lastSubmittedAt).toLocaleString()
-                      : 'No submissions yet'}
-                  </p>
-                </div>
-              ))
+                ))
               ) : (
-              <p className="text-muted-foreground text-sm">
-                No sites configured yet.
-              </p>
+                <p className="text-muted-foreground text-sm">
+                  No sites configured yet.
+                </p>
               )}
             </CardContent>
           </Card>

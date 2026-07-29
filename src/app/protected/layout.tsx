@@ -20,7 +20,9 @@ const protectedNavLinks = [
   { href: '/protected/logs', label: 'Logs' },
 ]
 
-export default async function ProtectedLayout({ children }: ProtectedLayoutProps) {
+export default async function ProtectedLayout({
+  children,
+}: ProtectedLayoutProps) {
   noStore()
   await connection()
 

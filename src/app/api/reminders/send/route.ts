@@ -45,9 +45,13 @@ export async function POST(req: NextRequest) {
 
     for (const shift of ['morning', 'evening'] as const) {
       const reminderTime =
-        shift === 'morning' ? site.reminder_time_morning : site.reminder_time_evening
+        shift === 'morning'
+          ? site.reminder_time_morning
+          : site.reminder_time_evening
       const formUrl =
-        shift === 'morning' ? site.google_form_url_morning : site.google_form_url_evening
+        shift === 'morning'
+          ? site.google_form_url_morning
+          : site.google_form_url_evening
 
       if (!reminderTime || !formUrl || !site.whatsapp_target) continue
 
@@ -56,7 +60,11 @@ export async function POST(req: NextRequest) {
       if (storedHHMM !== localHHMM) continue
 
       const message = buildReminderMessage(site.name, shift, formUrl)
-      const ok = await sendWhatsAppTemplate(site.whatsapp_target, formUrl, message)
+      const ok = await sendWhatsAppTemplate(
+        site.whatsapp_target,
+        formUrl,
+        message,
+      )
 
       if (ok) {
         dispatched.push(`${site.id}:${shift}`)
@@ -122,7 +130,8 @@ async function sendWhatsAppTemplate(
   const apiKey = process.env.WHATSAPP_API_KEY
   const templateName = process.env.WHATSAPP_TEMPLATE_NAME || 'hello_world'
   const templateLang = process.env.WHATSAPP_TEMPLATE_LANG || 'en_US'
-  const templateBodyVar1Mode = process.env.WHATSAPP_TEMPLATE_BODY_VAR1_MODE || ''
+  const templateBodyVar1Mode =
+    process.env.WHATSAPP_TEMPLATE_BODY_VAR1_MODE || ''
   const templateButtonUrlVar1Mode =
     process.env.WHATSAPP_TEMPLATE_BUTTON_URL_VAR1_MODE || ''
   const templateButtonIndex = process.env.WHATSAPP_TEMPLATE_BUTTON_INDEX || '0'
@@ -202,7 +211,11 @@ async function sendWhatsAppTemplate(
     })
 
     if (!res.ok) {
-      console.error('[reminders] WhatsApp provider error', res.status, await res.text())
+      console.error(
+        '[reminders] WhatsApp provider error',
+        res.status,
+        await res.text(),
+      )
       return false
     }
 

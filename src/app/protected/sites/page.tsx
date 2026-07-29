@@ -5,12 +5,12 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
 import { createClient } from '@/supabase/server'
 import { Suspense } from 'react'
 import { connection } from 'next/server'
 import { unstable_noStore as noStore } from 'next/cache'
 import { CreateSiteForm } from './create-site-form'
+import { EditSiteForm } from './edit-site-form'
 
 type ProjectRow = {
   id: string
@@ -20,17 +20,23 @@ type ProjectRow = {
 type SiteRow = {
   id: string
   name: string
+  public_code: string | null
   project_id: string
   timezone: string
+  google_form_url_morning: string | null
+  google_form_url_evening: string | null
   reminder_time_morning: string | null
   reminder_time_evening: string | null
+  whatsapp_target: string | null
   status: string
 }
 
 export default function SitesPage() {
   return (
     <Suspense
-      fallback={<div className="text-muted-foreground text-sm">Loading sites...</div>}
+      fallback={
+        <div className="text-muted-foreground text-sm">Loading sites...</div>
+      }
     >
       <SitesContent />
     </Suspense>
@@ -42,16 +48,21 @@ async function SitesContent() {
   await connection()
 
   const supabase = await createClient()
-  const [{ data: projects, error: projectsError }, { data: sites, error: sitesError }] =
-    await Promise.all([
-      supabase.from('projects').select('id, name').order('created_at', { ascending: false }),
-      supabase
-        .from('sites')
-        .select(
-          'id, name, project_id, timezone, reminder_time_morning, reminder_time_evening, status',
-        )
-        .order('created_at', { ascending: false }),
-    ])
+  const [
+    { data: projects, error: projectsError },
+    { data: sites, error: sitesError },
+  ] = await Promise.all([
+    supabase
+      .from('projects')
+      .select('id, name')
+      .order('created_at', { ascending: false }),
+    supabase
+      .from('sites')
+      .select(
+        'id, name, public_code, project_id, timezone, google_form_url_morning, google_form_url_evening, reminder_time_morning, reminder_time_evening, whatsapp_target, status',
+      )
+      .order('created_at', { ascending: false }),
+  ])
 
   const typedProjects = (projects ?? []) as ProjectRow[]
   const typedSites = (sites ?? []) as SiteRow[]
@@ -88,7 +99,7 @@ async function SitesContent() {
         <CardHeader>
           <CardTitle className="text-base">Sites</CardTitle>
           <CardDescription>
-            Current sites and reminder configuration visibility.
+            Current sites and reminder configuration. Expand a row to edit.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
@@ -99,24 +110,14 @@ async function SitesContent() {
             </p>
           ) : typedSites.length > 0 ? (
             typedSites.map((site) => (
-              <div key={site.id} className="rounded-md border px-3 py-3 text-sm">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <p className="font-medium">{site.name}</p>
-                  <Badge variant={site.status === 'active' ? 'default' : 'secondary'}>
-                    {site.status}
-                  </Badge>
-                </div>
-                <p className="text-muted-foreground mt-1 text-xs">
-                  Project: {projectNameById[site.project_id] ?? site.project_id}
-                </p>
-                <p className="text-muted-foreground mt-1 text-xs">
-                  Timezone: {site.timezone}
-                </p>
-                <p className="text-muted-foreground mt-1 text-xs">
-                  Reminders: {site.reminder_time_morning ?? '--'} /{' '}
-                  {site.reminder_time_evening ?? '--'}
-                </p>
-              </div>
+              <EditSiteForm
+                key={site.id}
+                site={site}
+                projects={typedProjects}
+                projectName={
+                  projectNameById[site.project_id] ?? site.project_id
+                }
+              />
             ))
           ) : (
             <p className="text-muted-foreground text-sm">

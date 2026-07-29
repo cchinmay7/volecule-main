@@ -23,6 +23,7 @@ Reference: [md/volecule_main.md](md/volecule_main.md)
 Keep only 3 tables for now.
 
 1. projects
+
 - id uuid pk
 - name text not null
 - client_name text not null
@@ -31,6 +32,7 @@ Keep only 3 tables for now.
 - created_at timestamptz default now()
 
 2. sites
+
 - id uuid pk
 - project_id uuid not null references projects(id) on delete cascade
 - name text not null
@@ -44,6 +46,7 @@ Keep only 3 tables for now.
 - created_at timestamptz default now()
 
 3. site_logs
+
 - id uuid pk
 - site_id uuid not null references sites(id) on delete cascade
 - log_date date not null
@@ -58,10 +61,12 @@ Keep only 3 tables for now.
 - created_at timestamptz default now()
 
 Cardinality:
+
 - One project to many sites.
 - One site to many logs.
 
 Uniqueness:
+
 - unique (site_id, log_date, shift)
 - unique (site_id, external_submission_id) where external_submission_id is not null
 
@@ -70,15 +75,19 @@ Uniqueness:
 Deferred as non-essential for first usable cycle:
 
 1. site_recipients
+
 - Reason: one whatsapp_target on sites is enough for v1.
 
 2. site_reminder_rules
+
 - Reason: morning and evening reminder times on sites are enough.
 
 3. reminder_dispatches
+
 - Reason: no strict delivery audit required to start; can add once core flow is stable.
 
 4. form_ingestion_events
+
 - Reason: raw payload can live in site_logs.source_payload_json for v1.
 
 ## 4) Minimal Security (Only Must-Have)
