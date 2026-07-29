@@ -1,30 +1,20 @@
-import { createClient } from '@/supabase/server'
-import Link from 'next/link'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { buttonVariants } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { cn } from '@/utils/tailwind'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { createClient } from '@/supabase/server'
 import { Suspense } from 'react'
 import { connection } from 'next/server'
 import { unstable_noStore as noStore } from 'next/cache'
 
+type ProjectRow = {
+  id: string
+  name: string
+}
+
 type SiteRow = {
   id: string
   name: string
+  project_id: string
   timezone: string
-  reminder_time_morning: string | null
-  reminder_time_evening: string | null
-  google_form_url_morning: string | null
-  google_form_url_evening: string | null
-  whatsapp_target: string | null
-}
-
-type SiteLogRow = {
-  id: string
-  site_id: string
-  log_date: string
-  shift: 'morning' | 'evening'
-  created_at: string
 }
 
 export default function ProtectedPage() {
@@ -32,7 +22,7 @@ export default function ProtectedPage() {
     <Suspense
       fallback={
         <div className="text-muted-foreground text-sm">
-          Loading dashboard...
+          Loading monitoring view...
         </div>
       }
     >
@@ -47,32 +37,24 @@ async function ProtectedDashboardContent() {
 
   const supabase = await createClient()
   const [
-    { count: projectsCount, error: projectsError },
-    { count: sitesCount, error: sitesError },
-    { data: latestLogs, error: logsError },
-    { data: sitesData, error: sitesDataError },
+    { data: projectsData, error: projectsError },
+    { data: sitesData, error: sitesError },
   ] = await Promise.all([
-    supabase.from('projects').select('*', { count: 'exact', head: true }),
-    supabase.from('sites').select('*', { count: 'exact', head: true }),
-    supabase
-      .from('site_logs')
-      .select('id, site_id, log_date, shift, created_at')
-      .order('created_at', { ascending: false })
-      .limit(5),
+    supabase.from('projects').select('id, name'),
     supabase
       .from('sites')
-      .select(
-        'id, name, timezone, reminder_time_morning, reminder_time_evening, google_form_url_morning, google_form_url_evening, whatsapp_target',
-      )
+      .select('id, name, project_id, timezone')
       .order('created_at', { ascending: false }),
   ])
 
-  const schemaNotReady = Boolean(
-    projectsError || sitesError || logsError || sitesDataError,
+  const schemaNotReady = Boolean(projectsError || sitesError)
+  const projectNameById = Object.fromEntries(
+    ((projectsData ?? []) as ProjectRow[]).map((project) => [
+      project.id,
+      project.name,
+    ]),
   )
-
   const typedSites = (sitesData ?? []) as SiteRow[]
-  const typedLatestLogs = (latestLogs ?? []) as SiteLogRow[]
 
   const siteStatusRows = await Promise.all(
     typedSites.map(async (site) => {
@@ -83,7 +65,7 @@ async function ProtectedDashboardContent() {
       ] = await Promise.all([
         supabase
           .from('site_logs')
-          .select('shift, created_at')
+          .select('shift')
           .eq('site_id', site.id)
           .eq('log_date', localDate),
         supabase
@@ -103,25 +85,13 @@ async function ProtectedDashboardContent() {
         dayLogs?.some((log) => log.shift === 'evening'),
       )
 
-      const morningConfigured = Boolean(
-        site.reminder_time_morning &&
-        site.google_form_url_morning &&
-        site.whatsapp_target,
-      )
-      const eveningConfigured = Boolean(
-        site.reminder_time_evening &&
-        site.google_form_url_evening &&
-        site.whatsapp_target,
-      )
-
       return {
         siteId: site.id,
         siteName: site.name,
+        projectName: projectNameById[site.project_id] ?? site.project_id,
         localDate,
         hasMorning,
         hasEvening,
-        morningConfigured,
-        eveningConfigured,
         lastSubmittedAt: lastLog?.[0]?.created_at ?? null,
         hasQueryError,
       }
@@ -132,9 +102,9 @@ async function ProtectedDashboardContent() {
   return (
     <div className="flex w-full flex-1 flex-col gap-6">
       <div className="space-y-2">
-        <h1 className="text-2xl font-semibold">Operations Dashboard</h1>
+        <h1 className="text-2xl font-semibold">Per-site monitoring</h1>
         <p className="text-muted-foreground text-sm">
-          Track project setup progress and daily form ingestion status.
+          Live morning/evening submission status by site.
         </p>
       </div>
 
@@ -149,142 +119,59 @@ async function ProtectedDashboardContent() {
       )}
 
       {!schemaNotReady && (
-        <>
-          <div className="grid gap-4 md:grid-cols-2">
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-base">Projects</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-3xl font-semibold">{projectsCount ?? 0}</p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-base">Sites</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-3xl font-semibold">{sitesCount ?? 0}</p>
-              </CardContent>
-            </Card>
-          </div>
-
-          <div className="flex flex-wrap gap-3">
-            <Link
-              href="/protected/projects"
-              className={cn(buttonVariants({ variant: 'default' }))}
-            >
-              Manage Projects
-            </Link>
-            <Link
-              href="/protected/sites"
-              className={cn(buttonVariants({ variant: 'outline' }))}
-            >
-              Manage Sites
-            </Link>
-            <Link
-              href="/protected/logs"
-              className={cn(buttonVariants({ variant: 'outline' }))}
-            >
-              View Logs
-            </Link>
-          </div>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Latest activity</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {typedLatestLogs.length > 0 ? (
-                <div className="space-y-2 text-sm">
-                  {typedLatestLogs.map((log) => (
-                    <div
-                      key={log.id}
-                      className="text-muted-foreground flex items-center justify-between rounded-md border px-3 py-2"
-                    >
-                      <span>
-                        {log.shift} log for site {log.site_id}
-                      </span>
-                      <span>{log.log_date}</span>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-muted-foreground text-sm">
-                  No logs found yet. Connect Google Forms ingestion to start
-                  seeing site activity.
-                </p>
-              )}
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Today per-site status</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {statusCardError ? (
-                <p className="text-muted-foreground text-sm">
-                  Could not load all site statuses. Try refreshing the page.
-                </p>
-              ) : siteStatusRows.length > 0 ? (
-                siteStatusRows.map((site) => (
-                  <div
-                    key={site.siteId}
-                    className="rounded-md border px-3 py-3 text-sm"
-                  >
-                    <div className="flex flex-wrap items-center justify-between gap-2">
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Today per-site status</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {statusCardError ? (
+              <p className="text-muted-foreground text-sm">
+                Could not load all site statuses. Try refreshing the page.
+              </p>
+            ) : siteStatusRows.length > 0 ? (
+              siteStatusRows.map((site) => (
+                <div
+                  key={site.siteId}
+                  className="rounded-md border px-3 py-3 text-sm"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
                       <p className="font-medium">{site.siteName}</p>
-                      <span className="text-muted-foreground text-xs">
-                        Date: {site.localDate}
-                      </span>
+                      <p className="text-muted-foreground text-xs">
+                        Project: {site.projectName}
+                      </p>
                     </div>
-                    <div className="mt-2 flex flex-wrap items-center gap-2">
-                      <Badge
-                        variant={site.hasMorning ? 'default' : 'destructive'}
-                      >
-                        Morning: {site.hasMorning ? 'Submitted' : 'Missing'}
-                      </Badge>
-                      <Badge
-                        variant={site.hasEvening ? 'default' : 'destructive'}
-                      >
-                        Evening: {site.hasEvening ? 'Submitted' : 'Missing'}
-                      </Badge>
-                    </div>
-                    <div className="mt-2 flex flex-wrap items-center gap-2">
-                      <Badge
-                        variant={
-                          site.morningConfigured ? 'secondary' : 'outline'
-                        }
-                      >
-                        Morning reminder:{' '}
-                        {site.morningConfigured ? 'Configured' : 'Incomplete'}
-                      </Badge>
-                      <Badge
-                        variant={
-                          site.eveningConfigured ? 'secondary' : 'outline'
-                        }
-                      >
-                        Evening reminder:{' '}
-                        {site.eveningConfigured ? 'Configured' : 'Incomplete'}
-                      </Badge>
-                    </div>
-                    <p className="text-muted-foreground mt-2 text-xs">
-                      Last submission:{' '}
-                      {site.lastSubmittedAt
-                        ? new Date(site.lastSubmittedAt).toLocaleString()
-                        : 'No submissions yet'}
-                    </p>
+                    <span className="text-muted-foreground text-xs">
+                      Date: {site.localDate}
+                    </span>
                   </div>
-                ))
-              ) : (
-                <p className="text-muted-foreground text-sm">
-                  No sites configured yet.
-                </p>
-              )}
-            </CardContent>
-          </Card>
-        </>
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <Badge
+                      variant={site.hasMorning ? 'default' : 'destructive'}
+                    >
+                      Morning: {site.hasMorning ? 'Submitted' : 'Missing'}
+                    </Badge>
+                    <Badge
+                      variant={site.hasEvening ? 'default' : 'destructive'}
+                    >
+                      Evening: {site.hasEvening ? 'Submitted' : 'Missing'}
+                    </Badge>
+                  </div>
+                  <p className="text-muted-foreground mt-2 text-xs">
+                    Last submission:{' '}
+                    {site.lastSubmittedAt
+                      ? new Date(site.lastSubmittedAt).toLocaleString()
+                      : 'No submissions yet'}
+                  </p>
+                </div>
+              ))
+            ) : (
+              <p className="text-muted-foreground text-sm">
+                No sites configured yet.
+              </p>
+            )}
+          </CardContent>
+        </Card>
       )}
     </div>
   )

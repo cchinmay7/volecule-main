@@ -1,3 +1,6 @@
+import Link from 'next/link'
+import { Badge } from '@/components/ui/badge'
+import { buttonVariants } from '@/components/ui/button'
 import {
   Card,
   CardContent,
@@ -6,11 +9,11 @@ import {
   CardTitle,
 } from '@/components/ui/card'
 import { createClient } from '@/supabase/server'
+import { cn } from '@/utils/tailwind'
 import { Suspense } from 'react'
 import { connection } from 'next/server'
 import { unstable_noStore as noStore } from 'next/cache'
 import { CreateSiteForm } from './create-site-form'
-import { EditSiteForm } from './edit-site-form'
 
 type ProjectRow = {
   id: string
@@ -23,11 +26,8 @@ type SiteRow = {
   public_code: string | null
   project_id: string
   timezone: string
-  google_form_url_morning: string | null
-  google_form_url_evening: string | null
   reminder_time_morning: string | null
   reminder_time_evening: string | null
-  whatsapp_target: string | null
   status: string
 }
 
@@ -59,7 +59,7 @@ async function SitesContent() {
     supabase
       .from('sites')
       .select(
-        'id, name, public_code, project_id, timezone, google_form_url_morning, google_form_url_evening, reminder_time_morning, reminder_time_evening, whatsapp_target, status',
+        'id, name, public_code, project_id, timezone, reminder_time_morning, reminder_time_evening, status',
       )
       .order('created_at', { ascending: false }),
   ])
@@ -99,7 +99,7 @@ async function SitesContent() {
         <CardHeader>
           <CardTitle className="text-base">Sites</CardTitle>
           <CardDescription>
-            Current sites and reminder configuration. Expand a row to edit.
+            Open a site to view details, edit configuration, or delete it.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
@@ -110,14 +110,45 @@ async function SitesContent() {
             </p>
           ) : typedSites.length > 0 ? (
             typedSites.map((site) => (
-              <EditSiteForm
+              <div
                 key={site.id}
-                site={site}
-                projects={typedProjects}
-                projectName={
-                  projectNameById[site.project_id] ?? site.project_id
-                }
-              />
+                className="space-y-3 rounded-md border px-3 py-3 text-sm"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <p className="font-medium">{site.name}</p>
+                    <p className="text-muted-foreground text-xs">
+                      Project:{' '}
+                      {projectNameById[site.project_id] ?? site.project_id}
+                    </p>
+                    <p className="text-muted-foreground text-xs">
+                      Code: {site.public_code ?? '--'} • Timezone:{' '}
+                      {site.timezone}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Badge variant="outline">
+                      {site.reminder_time_morning ?? '--'} /{' '}
+                      {site.reminder_time_evening ?? '--'}
+                    </Badge>
+                    <Badge
+                      variant={
+                        site.status === 'active' ? 'default' : 'secondary'
+                      }
+                    >
+                      {site.status}
+                    </Badge>
+                  </div>
+                </div>
+                <Link
+                  href={`/protected/sites/${site.id}`}
+                  className={cn(
+                    buttonVariants({ variant: 'outline', size: 'sm' }),
+                  )}
+                >
+                  View details
+                </Link>
+              </div>
             ))
           ) : (
             <p className="text-muted-foreground text-sm">

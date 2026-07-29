@@ -330,6 +330,7 @@ export async function updateProjectAction(
 
   revalidatePath('/protected')
   revalidatePath('/protected/projects')
+  revalidatePath(`/protected/projects/${projectId}`)
   revalidatePath('/protected/sites')
   revalidatePath('/protected/logs')
   return { success: true }
@@ -355,6 +356,16 @@ export async function updateSiteAction(
   }
 
   const supabase = await createClient()
+
+  const { data: existingSite, error: existingSiteError } = await supabase
+    .from('sites')
+    .select('project_id')
+    .eq('id', siteId)
+    .single()
+
+  if (existingSiteError || !existingSite) {
+    return { success: false, error: 'Site not found.' }
+  }
 
   const { data: project, error: projectError } = await supabase
     .from('projects')
@@ -405,7 +416,98 @@ export async function updateSiteAction(
 
   revalidatePath('/protected')
   revalidatePath('/protected/projects')
+  revalidatePath(`/protected/projects/${existingSite.project_id}`)
+  revalidatePath(`/protected/projects/${parsed.values.projectId}`)
   revalidatePath('/protected/sites')
+  revalidatePath(`/protected/sites/${siteId}`)
+  revalidatePath('/protected/logs')
+  return { success: true }
+}
+
+export async function deleteProjectAction(
+  _prev: ActionResult | null,
+  formData: FormData,
+): Promise<ActionResult> {
+  const auth = await getAuthenticatedUserId()
+  if ('error' in auth) {
+    return { success: false, error: auth.error }
+  }
+
+  const projectId = formData.get('project_id')?.toString().trim()
+  if (!projectId) {
+    return { success: false, error: 'Project id is required.' }
+  }
+
+  const supabase = await createClient()
+  const { data, error } = await supabase
+    .from('projects')
+    .delete()
+    .eq('id', projectId)
+    .select('id')
+    .single()
+
+  if (error) {
+    return { success: false, error: error.message }
+  }
+
+  if (!data) {
+    return { success: false, error: 'Project not found.' }
+  }
+
+  revalidatePath('/protected')
+  revalidatePath('/protected/projects')
+  revalidatePath(`/protected/projects/${projectId}`)
+  revalidatePath('/protected/sites')
+  revalidatePath('/protected/logs')
+  return { success: true }
+}
+
+export async function deleteSiteAction(
+  _prev: ActionResult | null,
+  formData: FormData,
+): Promise<ActionResult> {
+  const auth = await getAuthenticatedUserId()
+  if ('error' in auth) {
+    return { success: false, error: auth.error }
+  }
+
+  const siteId = formData.get('site_id')?.toString().trim()
+  if (!siteId) {
+    return { success: false, error: 'Site id is required.' }
+  }
+
+  const supabase = await createClient()
+
+  const { data: existingSite, error: existingSiteError } = await supabase
+    .from('sites')
+    .select('project_id')
+    .eq('id', siteId)
+    .single()
+
+  if (existingSiteError || !existingSite) {
+    return { success: false, error: 'Site not found.' }
+  }
+
+  const { data, error } = await supabase
+    .from('sites')
+    .delete()
+    .eq('id', siteId)
+    .select('id')
+    .single()
+
+  if (error) {
+    return { success: false, error: error.message }
+  }
+
+  if (!data) {
+    return { success: false, error: 'Site not found.' }
+  }
+
+  revalidatePath('/protected')
+  revalidatePath('/protected/projects')
+  revalidatePath(`/protected/projects/${existingSite.project_id}`)
+  revalidatePath('/protected/sites')
+  revalidatePath(`/protected/sites/${siteId}`)
   revalidatePath('/protected/logs')
   return { success: true }
 }
