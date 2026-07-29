@@ -100,6 +100,11 @@ create policy "authenticated_update_projects"
   to authenticated
   using (true);
 
+create policy "authenticated_delete_projects"
+  on public.projects for delete
+  to authenticated
+  using (true);
+
 -- Sites: authenticated users can read/write all rows.
 create policy "authenticated_read_sites"
   on public.sites for select
@@ -113,6 +118,11 @@ create policy "authenticated_insert_sites"
 
 create policy "authenticated_update_sites"
   on public.sites for update
+  to authenticated
+  using (true);
+
+create policy "authenticated_delete_sites"
+  on public.sites for delete
   to authenticated
   using (true);
 
@@ -131,5 +141,10 @@ create policy "authenticated_insert_site_logs"
 
 create policy "authenticated_update_site_logs"
   on public.site_logs for update
+  to authenticated
+  using (true);
+
+create policy "authenticated_delete_site_logs"
+  on public.site_logs for delete
   to authenticated
   using (true);
