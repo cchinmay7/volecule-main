@@ -1,0 +1,26 @@
+name: Hourly Reminder Dispatch
+
+on:
+  schedule:
+    - cron: '0 * * * *'
+  workflow_dispatch:
+
+jobs:
+  dispatch-reminders:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger reminder dispatch endpoint
+        env:
+          REMINDER_URL: https://volecule-main.vercel.app/api/reminders/send
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then
+            echo "GitHub secret CRON_SECRET is not set"
+            exit 1
+          fi
+
+          response=$(curl --silent --show-error --fail-with-body --location \
+            --header "Authorization: Bearer $CRON_SECRET" \
+            "$REMINDER_URL")
+
+          echo "Reminder response: $response"
