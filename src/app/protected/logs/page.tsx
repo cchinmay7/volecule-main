@@ -42,7 +42,7 @@ export default async function LogsPage() {
       fallback={
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Site logs</CardTitle>
+            <CardTitle className="text-base">Project logs</CardTitle>
           </CardHeader>
           <CardContent className="text-muted-foreground text-sm">
             Loading logs...
@@ -92,9 +92,9 @@ async function LogsContent() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base">Site logs</CardTitle>
+        <CardTitle className="text-base">Project logs</CardTitle>
         <CardDescription>
-          Recent morning/evening submissions with project visibility.
+          Recent morning/evening submissions with site visibility.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -119,7 +119,7 @@ async function LogsContent() {
                   <div>
                     <p className="font-medium">{site?.name ?? log.site_id}</p>
                     <p className="text-muted-foreground text-xs">
-                      Projects:{' '}
+                      Sites:{' '}
                       {projectNames.length > 0 ? projectNames.join(', ') : '--'}{' '}
                       • Code: {site?.public_code ?? '--'}
                     </p>
@@ -152,7 +152,7 @@ async function LogsContent() {
           })
         ) : (
           <p className="text-muted-foreground text-sm">
-            No site logs yet. Google Forms ingestion will populate this feed.
+            No project logs yet. Google Forms ingestion will populate this feed.
           </p>
         )}
       </CardContent>

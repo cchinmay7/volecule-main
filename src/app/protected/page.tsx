@@ -105,9 +105,9 @@ async function ProtectedDashboardContent() {
   return (
     <div className="flex w-full flex-1 flex-col gap-6">
       <div className="space-y-2">
-        <h1 className="text-2xl font-semibold">Per-site monitoring</h1>
+        <h1 className="text-2xl font-semibold">Per-project monitoring</h1>
         <p className="text-muted-foreground text-sm">
-          Live morning/evening submission status by site.
+          Live morning/evening submission status by project.
         </p>
       </div>
 
@@ -124,12 +124,14 @@ async function ProtectedDashboardContent() {
       {!schemaNotReady && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Today per-site status</CardTitle>
+            <CardTitle className="text-base">
+              Today per-project status
+            </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
             {statusCardError ? (
               <p className="text-muted-foreground text-sm">
-                Could not load all site statuses. Try refreshing the page.
+                Could not load all project statuses. Try refreshing the page.
               </p>
             ) : siteStatusRows.length > 0 ? (
               siteStatusRows.map((site) => (
@@ -141,7 +143,7 @@ async function ProtectedDashboardContent() {
                     <div>
                       <p className="font-medium">{site.siteName}</p>
                       <p className="text-muted-foreground text-xs">
-                        Projects:{' '}
+                        Sites:{' '}
                         {site.projectNames.length > 0
                           ? site.projectNames.join(', ')
                           : '--'}
@@ -173,7 +175,7 @@ async function ProtectedDashboardContent() {
               ))
             ) : (
               <p className="text-muted-foreground text-sm">
-                No sites configured yet.
+                No projects configured yet.
               </p>
             )}
           </CardContent>

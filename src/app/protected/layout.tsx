@@ -15,8 +15,8 @@ type ProtectedLayoutProps = {
 
 const protectedNavLinks = [
   { href: '/protected', label: 'Dashboard' },
-  { href: '/protected/projects', label: 'Projects' },
-  { href: '/protected/sites', label: 'Sites' },
+  { href: '/protected/projects', label: 'Sites' },
+  { href: '/protected/sites', label: 'Projects' },
   { href: '/protected/logs', label: 'Logs' },
 ]
 

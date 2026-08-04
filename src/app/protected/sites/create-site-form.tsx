@@ -15,22 +15,22 @@ export function CreateSiteForm() {
         <p className="text-destructive text-sm">{state.error}</p>
       )}
       {state?.success && (
-        <p className="text-sm text-green-600">Site created successfully.</p>
+        <p className="text-sm text-green-600">Project created successfully.</p>
       )}
       <div className="space-y-2">
-        <Label htmlFor="name">Site name</Label>
+        <Label htmlFor="name">Project name</Label>
         <Input id="name" name="name" placeholder="Tower A - Floor 3" required />
       </div>
       <div className="space-y-2">
-        <Label htmlFor="public_code">Site code (optional)</Label>
+        <Label htmlFor="public_code">Project code (optional)</Label>
         <Input
           id="public_code"
           name="public_code"
           placeholder="Auto-generated if left blank"
         />
         <p className="text-muted-foreground text-xs">
-          Use this stable code in form links/payloads so Apps Script can send
-          site_code instead of hardcoded site IDs.
+          Use this stable code in form links/payloads. The ingestion payload key
+          remains <code>site_code</code>.
         </p>
       </div>
       <div className="space-y-2">
@@ -71,7 +71,7 @@ export function CreateSiteForm() {
         <Input id="whatsapp_target" name="whatsapp_target" />
       </div>
       <Button type="submit" className="w-full" disabled={pending}>
-        {pending ? 'Creating…' : 'Create site'}
+        {pending ? 'Creating…' : 'Create project'}
       </Button>
     </form>
   )

@@ -60,10 +60,12 @@ export default async function ProjectDetailPage({
       <div className="space-y-4">
         <Link href="/protected/projects">
           <Button variant="outline" size="sm">
-            Back to projects
+            Back to sites
           </Button>
         </Link>
-        <p className="text-destructive text-sm">Could not load site options.</p>
+        <p className="text-destructive text-sm">
+          Could not load project options.
+        </p>
       </div>
     )
   }
@@ -72,7 +74,7 @@ export default async function ProjectDetailPage({
     <div className="space-y-4">
       <Link href="/protected/projects">
         <Button variant="outline" size="sm">
-          Back to projects
+          Back to sites
         </Button>
       </Link>
       <ProjectDetailView

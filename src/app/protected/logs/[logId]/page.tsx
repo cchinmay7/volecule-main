@@ -101,11 +101,11 @@ export default async function LogDetailsPage({ params }: LogDetailsPageProps) {
 
           <div className="space-y-1">
             <p>
-              <span className="font-medium">Site:</span>{' '}
+              <span className="font-medium">Project:</span>{' '}
               {typedSite?.name ?? typedLog.site_id}
             </p>
             <p>
-              <span className="font-medium">Projects:</span>{' '}
+              <span className="font-medium">Sites:</span>{' '}
               {typedProjects.length > 0
                 ? typedProjects.map((project) => project.name).join(', ')
                 : '--'}
