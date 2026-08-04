@@ -1,11 +1,13 @@
 # Volecule Operations Guide for Saras
 
 ## 1. Purpose
+
 This guide explains exactly how Saras should operate Volecule day to day and onboard new sites/projects based on the current codebase behavior.
 
 Important: some requested workflows (for example `/pull_scheduler` command and scheduler generation) are not implemented in the current repository. These are marked clearly below.
 
 ## 2. Systems Used
+
 - Volecule web app (`/auth/login`, `/protected`, `/protected/sites`, `/protected/projects`, `/protected/logs`)
 - Supabase (database + auth)
 - Vercel (deployment + runtime logs)
@@ -13,11 +15,13 @@ Important: some requested workflows (for example `/pull_scheduler` command and s
 - WhatsApp API provider (for reminder delivery)
 
 Important UI naming switch now active:
+
 - **Sites** tab points to `/protected/projects` and manages rows in `sites` table.
 - **Projects** tab points to `/protected/sites` and manages rows in `projects` table (includes code, forms, reminders).
 - Database naming is now aligned to this model (`projects`, `sites`, `project_logs`).
 
 ## 3. Prerequisites
+
 - One allowed operator account email configured by developer in:
   - `ALLOWED_LOGIN_EMAIL`
   - Optional matching client pre-check: `NEXT_PUBLIC_ALLOWED_LOGIN_EMAIL`
@@ -47,6 +51,7 @@ Code reference: `src/utils/reminders.ts` — `normalizeToE164Digits()`
 Code reference: `.env.example`
 
 ## 4. Important Codes and Identifiers
+
 - **Project ID** (Projects tab): internal UUID (`projects.id`)
 - **Project public code**: stable operator-facing code (`projects.public_code`), accepted by ingestion as `project_code`
 - **Site ID** (Sites tab): internal UUID (`sites.id`)
@@ -198,6 +203,7 @@ Where:
 
 Action:
 Record:
+
 - Project name
 - Project ID (from URL)
 - Project public code (`public_code`)
@@ -237,6 +243,7 @@ Site list and site detail page.
 
 Action:
 Record:
+
 - Site ID (from URL)
 - Site name
 - Linked project
@@ -278,6 +285,7 @@ Google Forms UI.
 
 Action:
 Create morning form fields that your script will map to:
+
 - headcount
 - targets_selected
 - targets_achieved
@@ -377,6 +385,7 @@ Apps Script payload mapper.
 
 Action:
 Include:
+
 - `project_id` or `project_code` (recommended: `project_code`)
 - `shift` (`morning` or `evening`)
 - `external_submission_id`
@@ -398,6 +407,7 @@ Where:
 Apps Script/team process documentation.
 
 Action:
+
 - `FORM_TIME`: not used directly by backend. Use `shift` with values `morning` or `evening`.
 - `PROJECT_CODE`: map this to payload key `project_code`.
 - Use `project_code` from project `public_code`.
@@ -459,6 +469,7 @@ Where:
 
 Action:
 Confirm:
+
 - Not logged in -> redirects to login
 - Logged in allowed user -> redirects to dashboard
 - Logged in non-allowed user -> denied
@@ -579,6 +590,7 @@ Resolution: Use detail pages to delete wrong duplicate.
 When to contact a developer: If deletion blocked by policy.
 
 ## 13. Developer Escalation Guide
+
 - Escalate immediately for:
   - Missing `/pull_scheduler` feature request
   - Build/deployment failures
@@ -592,6 +604,7 @@ When to contact a developer: If deletion blocked by policy.
   - Exact error text from Vercel/app UI
 
 ## 14. Quick Reference Checklist
+
 - Login works only for allowed email.
 - Project exists, active, with valid public code.
 - Site linked to correct project.
@@ -602,6 +615,7 @@ When to contact a developer: If deletion blocked by policy.
 - Scheduler retrieval command currently unavailable (known gap).
 
 ## 15. Code References
+
 - `proxy.ts` — `proxy()`
 - `src/supabase/proxy.ts` — `updateSession()`
 - `src/app/page.tsx` — `HomePage()`
@@ -629,6 +643,7 @@ When to contact a developer: If deletion blocked by policy.
 - `md/manual_setup_checklist.md`
 
 ## Daily Checklist
+
 - [ ] Sign in with allowed account.
 - [ ] Open dashboard (`/protected`) and check morning/evening status by project.
 - [ ] Open logs page and confirm recent submissions are arriving.
@@ -637,6 +652,7 @@ When to contact a developer: If deletion blocked by policy.
 - [ ] Escalate any unresolved failures with exact error and project/site identifiers.
 
 ## New Project Onboarding Checklist
+
 - [ ] Create project in `/protected/sites`.
 - [ ] Record Project ID and Project public code.
 - [ ] Create one or more sites in `/protected/projects` linked to that project.
