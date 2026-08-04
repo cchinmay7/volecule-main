@@ -5,13 +5,13 @@ import { Suspense } from 'react'
 import { connection } from 'next/server'
 import { unstable_noStore as noStore } from 'next/cache'
 
-type ProjectRow = {
+type SiteRow = {
   id: string
   name: string
-  site_id: string | null
+  project_id: string | null
 }
 
-type SiteRow = {
+type ProjectRow = {
   id: string
   name: string
   timezone: string
@@ -40,41 +40,41 @@ async function ProtectedDashboardContent() {
     { data: projectsData, error: projectsError },
     { data: sitesData, error: sitesError },
   ] = await Promise.all([
-    supabase.from('projects').select('id, name, site_id'),
     supabase
-      .from('sites')
+      .from('projects')
       .select('id, name, timezone')
       .order('created_at', { ascending: false }),
+    supabase.from('sites').select('id, name, project_id'),
   ])
 
   const schemaNotReady = Boolean(projectsError || sitesError)
-  const typedProjects = (projectsData ?? []) as ProjectRow[]
-  const projectNamesBySiteId = typedProjects.reduce<Record<string, string[]>>(
-    (acc, project) => {
-      if (!project.site_id) return acc
-      acc[project.site_id] = [...(acc[project.site_id] ?? []), project.name]
+  const typedSites = (sitesData ?? []) as SiteRow[]
+  const siteNamesByProjectId = typedSites.reduce<Record<string, string[]>>(
+    (acc, site) => {
+      if (!site.project_id) return acc
+      acc[site.project_id] = [...(acc[site.project_id] ?? []), site.name]
       return acc
     },
     {},
   )
-  const typedSites = (sitesData ?? []) as SiteRow[]
+  const typedProjects = (projectsData ?? []) as ProjectRow[]
 
-  const siteStatusRows = await Promise.all(
-    typedSites.map(async (site) => {
-      const localDate = toLocalDateString(new Date(), site.timezone)
+  const projectStatusRows = await Promise.all(
+    typedProjects.map(async (project) => {
+      const localDate = toLocalDateString(new Date(), project.timezone)
       const [
         { data: dayLogs, error: dayLogsError },
         { data: lastLog, error: lastLogError },
       ] = await Promise.all([
         supabase
-          .from('site_logs')
+          .from('project_logs')
           .select('shift')
-          .eq('site_id', site.id)
+          .eq('project_id', project.id)
           .eq('log_date', localDate),
         supabase
-          .from('site_logs')
+          .from('project_logs')
           .select('created_at')
-          .eq('site_id', site.id)
+          .eq('project_id', project.id)
           .order('created_at', { ascending: false })
           .limit(1),
       ])
@@ -89,9 +89,9 @@ async function ProtectedDashboardContent() {
       )
 
       return {
-        siteId: site.id,
-        siteName: site.name,
-        projectNames: projectNamesBySiteId[site.id] ?? [],
+        projectId: project.id,
+        projectName: project.name,
+        siteNames: siteNamesByProjectId[project.id] ?? [],
         localDate,
         hasMorning,
         hasEvening,
@@ -100,7 +100,9 @@ async function ProtectedDashboardContent() {
       }
     }),
   )
-  const statusCardError = siteStatusRows.some((site) => site.hasQueryError)
+  const statusCardError = projectStatusRows.some(
+    (project) => project.hasQueryError,
+  )
 
   return (
     <div className="flex w-full flex-1 flex-col gap-6">
@@ -133,42 +135,42 @@ async function ProtectedDashboardContent() {
               <p className="text-muted-foreground text-sm">
                 Could not load all project statuses. Try refreshing the page.
               </p>
-            ) : siteStatusRows.length > 0 ? (
-              siteStatusRows.map((site) => (
+            ) : projectStatusRows.length > 0 ? (
+              projectStatusRows.map((project) => (
                 <div
-                  key={site.siteId}
+                  key={project.projectId}
                   className="rounded-md border px-3 py-3 text-sm"
                 >
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div>
-                      <p className="font-medium">{site.siteName}</p>
+                      <p className="font-medium">{project.projectName}</p>
                       <p className="text-muted-foreground text-xs">
                         Sites:{' '}
-                        {site.projectNames.length > 0
-                          ? site.projectNames.join(', ')
+                        {project.siteNames.length > 0
+                          ? project.siteNames.join(', ')
                           : '--'}
                       </p>
                     </div>
                     <span className="text-muted-foreground text-xs">
-                      Date: {site.localDate}
+                      Date: {project.localDate}
                     </span>
                   </div>
                   <div className="mt-2 flex flex-wrap items-center gap-2">
                     <Badge
-                      variant={site.hasMorning ? 'default' : 'destructive'}
+                      variant={project.hasMorning ? 'default' : 'destructive'}
                     >
-                      Morning: {site.hasMorning ? 'Submitted' : 'Missing'}
+                      Morning: {project.hasMorning ? 'Submitted' : 'Missing'}
                     </Badge>
                     <Badge
-                      variant={site.hasEvening ? 'default' : 'destructive'}
+                      variant={project.hasEvening ? 'default' : 'destructive'}
                     >
-                      Evening: {site.hasEvening ? 'Submitted' : 'Missing'}
+                      Evening: {project.hasEvening ? 'Submitted' : 'Missing'}
                     </Badge>
                   </div>
                   <p className="text-muted-foreground mt-2 text-xs">
                     Last submission:{' '}
-                    {site.lastSubmittedAt
-                      ? new Date(site.lastSubmittedAt).toLocaleString()
+                    {project.lastSubmittedAt
+                      ? new Date(project.lastSubmittedAt).toLocaleString()
                       : 'No submissions yet'}
                   </p>
                 </div>

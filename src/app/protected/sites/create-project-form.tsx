@@ -1,13 +1,13 @@
 ﻿'use client'
 
 import { useActionState } from 'react'
-import { createSiteAction } from '@/app/protected/actions'
+import { createProjectAction } from '@/app/protected/actions'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 
-export function CreateSiteForm() {
-  const [state, formAction, pending] = useActionState(createSiteAction, null)
+export function CreateProjectForm() {
+  const [state, formAction, pending] = useActionState(createProjectAction, null)
 
   return (
     <form action={formAction} className="space-y-4">
@@ -30,7 +30,7 @@ export function CreateSiteForm() {
         />
         <p className="text-muted-foreground text-xs">
           Use this stable code in form links/payloads. The ingestion payload key
-          remains <code>site_code</code>.
+          is <code>project_code</code>.
         </p>
       </div>
       <div className="space-y-2">

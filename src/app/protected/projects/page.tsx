@@ -13,18 +13,18 @@ import { cn } from '@/utils/tailwind'
 import { Suspense } from 'react'
 import { connection } from 'next/server'
 import { unstable_noStore as noStore } from 'next/cache'
-import { CreateProjectForm } from './create-project-form'
+import { CreateSiteForm } from './create-site-form'
 
-type ProjectRow = {
+type SiteRow = {
   id: string
-  site_id: string | null
+  project_id: string | null
   name: string
   client_name: string
   status: string
   created_at: string
 }
 
-type SiteRow = {
+type ProjectRow = {
   id: string
   name: string
   status: string
@@ -48,21 +48,23 @@ async function ProjectsContent() {
 
   const supabase = await createClient()
   const [
-    { data: projects, error: projectsError },
     { data: sites, error: sitesError },
+    { data: projects, error: projectsError },
   ] = await Promise.all([
     supabase
-      .from('projects')
-      .select('id, site_id, name, client_name, status, created_at')
+      .from('sites')
+      .select('id, project_id, name, client_name, status, created_at')
       .order('created_at', { ascending: false }),
-    supabase.from('sites').select('id, name, status'),
+    supabase.from('projects').select('id, name, status'),
   ])
 
-  const typedProjects = (projects ?? []) as ProjectRow[]
   const typedSites = (sites ?? []) as SiteRow[]
-  const siteById = Object.fromEntries(typedSites.map((site) => [site.id, site]))
+  const typedProjects = (projects ?? []) as ProjectRow[]
+  const projectById = Object.fromEntries(
+    typedProjects.map((project) => [project.id, project]),
+  )
 
-  const hasSchemaError = Boolean(projectsError || sitesError)
+  const hasSchemaError = Boolean(sitesError || projectsError)
 
   return (
     <div className="grid gap-6 lg:grid-cols-[360px_1fr]">
@@ -70,7 +72,7 @@ async function ProjectsContent() {
         <CardHeader>
           <CardTitle className="text-base">Create site</CardTitle>
           <CardDescription>
-            Add a site and associate it to a project.
+            Add a site and associate it with a project.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -79,10 +81,10 @@ async function ProjectsContent() {
               Run the bootstrap SQL before creating sites.
             </p>
           ) : (
-            <CreateProjectForm
-              sites={typedSites.map((site) => ({
-                id: site.id,
-                name: site.name,
+            <CreateSiteForm
+              sites={typedProjects.map((project) => ({
+                id: project.id,
+                name: project.name,
               }))}
             />
           )}
@@ -100,45 +102,49 @@ async function ProjectsContent() {
               v1 schema tables are not available yet. Run the bootstrap SQL and
               refresh this page.
             </p>
-          ) : typedProjects.length > 0 ? (
-            typedProjects.map((project) => {
-              const site = project.site_id ? siteById[project.site_id] : null
+          ) : typedSites.length > 0 ? (
+            typedSites.map((site) => {
+              const project = site.project_id
+                ? projectById[site.project_id]
+                : null
               return (
                 <div
-                  key={project.id}
+                  key={site.id}
                   className="space-y-3 rounded-md border px-3 py-3 text-sm"
                 >
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
-                      <p className="font-medium">{project.name}</p>
+                      <p className="font-medium">{site.name}</p>
                       <p className="text-muted-foreground text-xs">
-                        Client: {project.client_name}
+                        Client: {site.client_name}
                       </p>
                       <p className="text-muted-foreground text-xs">
-                        Project: {site?.name ?? project.site_id ?? '--'}
+                        Project: {project?.name ?? site.project_id ?? '--'}
                       </p>
                     </div>
                     <div className="flex items-center gap-2">
-                      {site && (
+                      {project && (
                         <Badge
                           variant={
-                            site.status === 'active' ? 'default' : 'secondary'
+                            project.status === 'active'
+                              ? 'default'
+                              : 'secondary'
                           }
                         >
-                          Project {site.status}
+                          Project {project.status}
                         </Badge>
                       )}
                       <Badge
                         variant={
-                          project.status === 'active' ? 'default' : 'secondary'
+                          site.status === 'active' ? 'default' : 'secondary'
                         }
                       >
-                        {project.status}
+                        {site.status}
                       </Badge>
                     </div>
                   </div>
                   <Link
-                    href={`/protected/projects/${project.id}`}
+                    href={`/protected/projects/${site.id}`}
                     className={cn(
                       buttonVariants({ variant: 'outline', size: 'sm' }),
                     )}

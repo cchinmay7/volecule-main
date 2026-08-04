@@ -17,18 +17,18 @@ import { unstable_noStore as noStore } from 'next/cache'
 type ProjectRow = {
   id: string
   name: string
-  site_id: string | null
+  public_code: string | null
 }
 
 type SiteRow = {
   id: string
   name: string
-  public_code: string | null
+  project_id: string | null
 }
 
 type SiteLogRow = {
   id: string
-  site_id: string
+  project_id: string
   log_date: string
   shift: 'morning' | 'evening'
   source: 'google_form' | 'manual'
@@ -65,26 +65,26 @@ async function LogsContent() {
     { data: sites, error: sitesError },
     { data: logs, error: logsError },
   ] = await Promise.all([
-    supabase.from('projects').select('id, name, site_id'),
-    supabase.from('sites').select('id, name, public_code'),
+    supabase.from('projects').select('id, name, public_code'),
+    supabase.from('sites').select('id, name, project_id'),
     supabase
-      .from('site_logs')
-      .select('id, site_id, log_date, shift, source, created_at, free_notes')
+      .from('project_logs')
+      .select('id, project_id, log_date, shift, source, created_at, free_notes')
       .order('created_at', { ascending: false })
       .limit(50),
   ])
 
-  const typedProjects = (projects ?? []) as ProjectRow[]
-  const projectNamesBySiteId = typedProjects.reduce<Record<string, string[]>>(
-    (acc, project) => {
-      if (!project.site_id) return acc
-      acc[project.site_id] = [...(acc[project.site_id] ?? []), project.name]
+  const typedSites = (sites ?? []) as SiteRow[]
+  const siteNamesByProjectId = typedSites.reduce<Record<string, string[]>>(
+    (acc, site) => {
+      if (!site.project_id) return acc
+      acc[site.project_id] = [...(acc[site.project_id] ?? []), site.name]
       return acc
     },
     {},
   )
-  const siteById = Object.fromEntries(
-    ((sites ?? []) as SiteRow[]).map((site) => [site.id, site]),
+  const projectById = Object.fromEntries(
+    ((projects ?? []) as ProjectRow[]).map((project) => [project.id, project]),
   )
   const typedLogs = (logs ?? []) as SiteLogRow[]
   const hasSchemaError = Boolean(projectsError || sitesError || logsError)
@@ -100,14 +100,14 @@ async function LogsContent() {
       <CardContent className="space-y-3">
         {hasSchemaError ? (
           <p className="text-muted-foreground text-sm">
-            site_logs table is not available yet. Run the bootstrap SQL and
+            project_logs table is not available yet. Run the bootstrap SQL and
             refresh this page.
           </p>
         ) : typedLogs.length > 0 ? (
           typedLogs.map((log) => {
-            const site = siteById[log.site_id]
-            const projectNames = site
-              ? (projectNamesBySiteId[site.id] ?? [])
+            const project = projectById[log.project_id]
+            const siteNames = project
+              ? (siteNamesByProjectId[project.id] ?? [])
               : []
 
             return (
@@ -117,11 +117,13 @@ async function LogsContent() {
               >
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
-                    <p className="font-medium">{site?.name ?? log.site_id}</p>
+                    <p className="font-medium">
+                      {project?.name ?? log.project_id}
+                    </p>
                     <p className="text-muted-foreground text-xs">
                       Sites:{' '}
-                      {projectNames.length > 0 ? projectNames.join(', ') : '--'}{' '}
-                      • Code: {site?.public_code ?? '--'}
+                      {siteNames.length > 0 ? siteNames.join(', ') : '--'} •
+                      Code: {project?.public_code ?? '--'}
                     </p>
                     <p className="text-muted-foreground text-xs">
                       {log.log_date} • {log.shift}

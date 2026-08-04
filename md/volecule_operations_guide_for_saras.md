@@ -3,7 +3,7 @@
 ## 1. Purpose
 This guide explains exactly how Saras should operate Volecule day to day and onboard new sites/projects based on the current codebase behavior.
 
-Important: some requested workflows (for example `/pull_scheduler` command, `PROJECT_CODE`, `FORM_TIME`) are not implemented in the current repository. These are marked clearly below.
+Important: some requested workflows (for example `/pull_scheduler` command and scheduler generation) are not implemented in the current repository. These are marked clearly below.
 
 ## 2. Systems Used
 - Volecule web app (`/auth/login`, `/protected`, `/protected/sites`, `/protected/projects`, `/protected/logs`)
@@ -13,9 +13,9 @@ Important: some requested workflows (for example `/pull_scheduler` command, `PRO
 - WhatsApp API provider (for reminder delivery)
 
 Important UI naming switch now active:
-- **Sites** tab points to `/protected/projects` and manages rows in `projects` table.
-- **Projects** tab points to `/protected/sites` and manages rows in `sites` table (includes code, forms, reminders).
-- Database table names are unchanged (`projects`, `sites`).
+- **Sites** tab points to `/protected/projects` and manages rows in `sites` table.
+- **Projects** tab points to `/protected/sites` and manages rows in `projects` table (includes code, forms, reminders).
+- Database naming is now aligned to this model (`projects`, `sites`, `project_logs`).
 
 ## 3. Prerequisites
 - One allowed operator account email configured by developer in:
@@ -47,10 +47,10 @@ Code reference: `src/utils/reminders.ts` — `normalizeToE164Digits()`
 Code reference: `.env.example`
 
 ## 4. Important Codes and Identifiers
-- **Project ID** (Projects tab): internal UUID (`sites.id`)
-- **Project public code**: stable operator-facing code (`sites.public_code`), accepted by ingestion as `site_code`
-- **Site ID** (Sites tab): internal UUID (`projects.id`)
-- **Legacy `PROJECT_CODE` variable**: **not implemented in current schema/code**
+- **Project ID** (Projects tab): internal UUID (`projects.id`)
+- **Project public code**: stable operator-facing code (`projects.public_code`), accepted by ingestion as `project_code`
+- **Site ID** (Sites tab): internal UUID (`sites.id`)
+- **PROJECT_CODE in Apps Script**: map this to payload field `project_code`
 - **FORM_TIME** variable: **not implemented as a variable**; equivalent behavior is `shift` with allowed values:
   - `morning`
   - `evening`
@@ -58,7 +58,7 @@ Code reference: `.env.example`
 
 Code reference: `db/bootstrap_v1.sql`
 Code reference: `src/app/api/integrations/google-forms/submit/route.ts` — `POST()`
-Code reference: `src/app/protected/actions.ts` — `parseSiteFormData()`
+Code reference: `src/app/protected/actions.ts` — `parseProjectFormData()`
 
 ## 5. Saras’ Day-to-Day Workflow
 
@@ -109,7 +109,7 @@ Expected result:
 Log details show project, sites, shift, payload, and timestamps.
 
 If it fails:
-Check if `site_logs` table exists and if ingestion endpoint is receiving valid payloads.
+Check if `project_logs` table exists and if ingestion endpoint is receiving valid payloads.
 
 Code reference:
 `src/app/protected/logs/page.tsx` — `LogsContent()`
@@ -131,7 +131,7 @@ Open project details and confirm `public_code` exists; if missing, ask developer
 
 Code reference:
 `src/app/protected/sites/page.tsx` — `SitesContent()`
-`src/app/protected/sites/[siteId]/site-detail-view.tsx` — `SiteDetailView()`
+`src/app/protected/sites/[siteId]/project-detail-view.tsx` — `ProjectDetailView()`
 `db/bootstrap_v1.sql`
 
 Step 5: Trigger manual reminder send (morning/evening)
@@ -149,8 +149,8 @@ If it fails:
 Check site is active, form URL exists, WhatsApp target is valid, and WhatsApp env vars/provider are set.
 
 Code reference:
-`src/app/protected/sites/[siteId]/site-detail-view.tsx` — `SiteDetailView()`
-`src/app/protected/actions.ts` — `sendSiteReminderAction()`
+`src/app/protected/sites/[siteId]/project-detail-view.tsx` — `ProjectDetailView()`
+`src/app/protected/actions.ts` — `sendProjectReminderAction()`
 `src/utils/reminders.ts` — `sendWhatsAppTemplate()`
 
 Step 6: Scheduler retrieval command check
@@ -188,8 +188,8 @@ If it fails:
 Verify required fields and project code uniqueness.
 
 Code reference:
-`src/app/protected/sites/create-site-form.tsx` — `CreateSiteForm()`
-`src/app/protected/actions.ts` — `createSiteAction()`
+`src/app/protected/sites/create-project-form.tsx` — `CreateProjectForm()`
+`src/app/protected/actions.ts` — `createProjectAction()`
 
 Step 2: Record project identifiers
 
@@ -210,7 +210,7 @@ Edit project and set a valid unique public code.
 
 Code reference:
 `src/app/protected/sites/page.tsx` — `SitesContent()`
-`src/app/protected/sites/[siteId]/site-detail-view.tsx` — `SiteDetailView()`
+`src/app/protected/sites/[siteId]/project-detail-view.tsx` — `ProjectDetailView()`
 
 Step 3: Create one or more sites linked to project
 
@@ -227,8 +227,8 @@ If it fails:
 Ensure at least one project exists and selected project is valid.
 
 Code reference:
-`src/app/protected/projects/create-project-form.tsx` — `CreateProjectForm()`
-`src/app/protected/actions.ts` — `createProjectAction()`
+`src/app/protected/projects/create-site-form.tsx` — `CreateSiteForm()`
+`src/app/protected/actions.ts` — `createSiteAction()`
 
 Step 4: Record site identifiers
 
@@ -249,7 +249,7 @@ Edit site and reassign correct project.
 
 Code reference:
 `src/app/protected/projects/page.tsx` — `ProjectsContent()`
-`src/app/protected/projects/[projectId]/project-detail-view.tsx` — `ProjectDetailView()`
+`src/app/protected/projects/[projectId]/site-detail-view.tsx` — `SiteDetailView()`
 
 Step 5: Confirm each site is linked to correct project
 
@@ -263,11 +263,11 @@ Expected result:
 Assigned project matches onboarding records.
 
 If it fails:
-Edit site and update `site_id`.
+Edit site and update `project_id`.
 
 Code reference:
-`src/app/protected/projects/[projectId]/project-detail-view.tsx` — `ProjectDetailView()`
-`src/app/protected/actions.ts` — `updateProjectAction()`
+`src/app/protected/projects/[projectId]/site-detail-view.tsx` — `SiteDetailView()`
+`src/app/protected/actions.ts` — `updateSiteAction()`
 
 ## 7. Morning Google Form Setup
 
@@ -308,8 +308,8 @@ If it fails:
 Check edit mode and validation errors.
 
 Code reference:
-`src/app/protected/sites/[siteId]/site-detail-view.tsx` — `SiteDetailView()`
-`src/app/protected/actions.ts` — `updateSiteAction()`
+`src/app/protected/sites/[siteId]/project-detail-view.tsx` — `ProjectDetailView()`
+`src/app/protected/actions.ts` — `updateProjectAction()`
 
 ## 8. Evening Google Form Setup
 
@@ -345,8 +345,8 @@ If it fails:
 Check edit mode and validation errors.
 
 Code reference:
-`src/app/protected/sites/[siteId]/site-detail-view.tsx` — `SiteDetailView()`
-`src/app/protected/actions.ts` — `updateSiteAction()`
+`src/app/protected/sites/[siteId]/project-detail-view.tsx` — `ProjectDetailView()`
+`src/app/protected/actions.ts` — `updateProjectAction()`
 
 ## 9. Google Apps Script Configuration
 
@@ -377,7 +377,7 @@ Apps Script payload mapper.
 
 Action:
 Include:
-- `site_id` or `site_code` (recommended: `site_code`)
+- `project_id` or `project_code` (recommended: `project_code`)
 - `shift` (`morning` or `evening`)
 - `external_submission_id`
 - `submitted_at` (ISO timestamp)
@@ -399,8 +399,8 @@ Apps Script/team process documentation.
 
 Action:
 - `FORM_TIME`: not used directly by backend. Use `shift` with values `morning` or `evening`.
-- `PROJECT_CODE`: not used by backend ingestion currently.
-- Use `site_code` from site `public_code`.
+- `PROJECT_CODE`: map this to payload key `project_code`.
+- Use `project_code` from project `public_code`.
 
 Expected result:
 Payload aligns with current implementation.
@@ -507,20 +507,20 @@ If it fails:
 Check project active status, WhatsApp target format, form URL, and provider credentials.
 
 Code reference:
-`src/app/protected/actions.ts` — `sendSiteReminderAction()`
+`src/app/protected/actions.ts` — `sendProjectReminderAction()`
 `src/utils/reminders.ts` — `sendWhatsAppTemplate()`
 
 ## 12. Troubleshooting
 
 Problem: Incorrect project code  
-Likely cause: `project_code` is not part of current implementation.  
-How Saras can verify it: Check project fields in Projects pages and DB schema; no `project_code` column used.  
-Resolution: Use Project ID + Project public code for operations.  
-When to contact a developer: If business requires human-readable project code.
+Likely cause: Payload is sending wrong `project_code` value or wrong project `public_code`.  
+How Saras can verify it: Check project detail page `public_code` and compare with Apps Script payload.  
+Resolution: Send the exact `public_code` as `project_code` (or send `project_id`).  
+When to contact a developer: If the project exists but ingestion still returns unknown code.
 
 Problem: Incorrect public project code  
 Likely cause: Wrong/missing `public_code` in project config.  
-How Saras can verify it: Check project detail “Public code” field and ingestion error `Unknown site_code`.  
+How Saras can verify it: Check project detail “Public code” field and ingestion error `Unknown project_code`.  
 Resolution: Update project `public_code` to correct unique value.  
 When to contact a developer: If uniqueness conflicts persist.
 
@@ -581,21 +581,20 @@ When to contact a developer: If deletion blocked by policy.
 ## 13. Developer Escalation Guide
 - Escalate immediately for:
   - Missing `/pull_scheduler` feature request
-  - Need for `PROJECT_CODE`-based workflows
   - Build/deployment failures
   - DB policy/schema mismatches
   - Repeated ingestion failures after payload correction
 - Share:
-  - Site ID/public code
-  - Project ID
+  - Project ID/public code
+  - Site ID
   - Timestamp
   - Endpoint used
   - Exact error text from Vercel/app UI
 
 ## 14. Quick Reference Checklist
 - Login works only for allowed email.
-- Site exists, active, with valid public code.
-- Project linked to correct site.
+- Project exists, active, with valid public code.
+- Site linked to correct project.
 - Morning and evening form URLs set.
 - Apps Script sends required headers and payload fields.
 - Logs visible in `/protected/logs`.
@@ -610,17 +609,17 @@ When to contact a developer: If deletion blocked by policy.
 - `src/app/protected/page.tsx` — `ProtectedDashboardContent()`
 - `src/app/protected/logs/page.tsx` — `LogsContent()`
 - `src/app/protected/logs/[logId]/page.tsx` — `LogDetailsPage()`
-- `src/app/protected/sites/create-site-form.tsx` — `CreateSiteForm()`
-- `src/app/protected/projects/create-project-form.tsx` — `CreateProjectForm()`
+- `src/app/protected/sites/create-project-form.tsx` — `CreateProjectForm()`
+- `src/app/protected/projects/create-site-form.tsx` — `CreateSiteForm()`
 - `src/app/protected/actions.ts` — `createSiteAction()`
 - `src/app/protected/actions.ts` — `updateSiteAction()`
 - `src/app/protected/actions.ts` — `createProjectAction()`
 - `src/app/protected/actions.ts` — `updateProjectAction()`
-- `src/app/protected/actions.ts` — `sendSiteReminderAction()`
+- `src/app/protected/actions.ts` — `sendProjectReminderAction()`
 - `src/app/protected/actions.ts` — `deleteSiteAction()`
 - `src/app/protected/actions.ts` — `deleteProjectAction()`
-- `src/app/protected/sites/[siteId]/site-detail-view.tsx` — `SiteDetailView()`
-- `src/app/protected/projects/[projectId]/project-detail-view.tsx` — `ProjectDetailView()`
+- `src/app/protected/sites/[siteId]/project-detail-view.tsx` — `ProjectDetailView()`
+- `src/app/protected/projects/[projectId]/site-detail-view.tsx` — `SiteDetailView()`
 - `src/app/api/integrations/google-forms/submit/route.ts` — `POST()`
 - `src/app/api/reminders/send/route.ts` — `GET()`, `POST()`
 - `src/utils/reminders.ts` — `buildReminderMessage()`, `sendWhatsAppTemplate()`
@@ -645,7 +644,7 @@ When to contact a developer: If deletion blocked by policy.
 - [ ] Create Morning Google Form and set its URL on the project.
 - [ ] Create Evening Google Form and set its URL on the project.
 - [ ] Configure Apps Script to POST with `x-volecule-secret` header.
-- [ ] Ensure payload uses `site_code` (or `site_id`) and `shift` (`morning`/`evening`).
+- [ ] Ensure payload uses `project_code` (or `project_id`) and `shift` (`morning`/`evening`).
 - [ ] Submit test morning and evening responses.
 - [ ] Verify both logs appear in `/protected/logs`.
 - [ ] Test manual send buttons for both reminders.

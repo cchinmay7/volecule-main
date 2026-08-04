@@ -1,15 +1,15 @@
 ﻿'use client'
 
 import { useActionState } from 'react'
-import { createProjectAction } from '@/app/protected/actions'
+import { createSiteAction } from '@/app/protected/actions'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 
 type SiteOption = { id: string; name: string }
 
-export function CreateProjectForm({ sites }: { sites: SiteOption[] }) {
-  const [state, formAction, pending] = useActionState(createProjectAction, null)
+export function CreateSiteForm({ sites }: { sites: SiteOption[] }) {
+  const [state, formAction, pending] = useActionState(createSiteAction, null)
   const hasProjectOptions = sites.length > 0
 
   return (
@@ -21,10 +21,10 @@ export function CreateProjectForm({ sites }: { sites: SiteOption[] }) {
         <p className="text-sm text-green-600">Site created successfully.</p>
       )}
       <div className="space-y-2">
-        <Label htmlFor="site_id">Project</Label>
+        <Label htmlFor="project_id">Project</Label>
         <select
-          id="site_id"
-          name="site_id"
+          id="project_id"
+          name="project_id"
           required
           disabled={!hasProjectOptions || pending}
           className="border-input h-9 w-full rounded-md border bg-transparent px-3 text-sm"

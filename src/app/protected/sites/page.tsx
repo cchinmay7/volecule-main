@@ -13,11 +13,11 @@ import { cn } from '@/utils/tailwind'
 import { Suspense } from 'react'
 import { connection } from 'next/server'
 import { unstable_noStore as noStore } from 'next/cache'
-import { CreateSiteForm } from './create-site-form'
+import { CreateProjectForm } from './create-project-form'
 
 type ProjectRow = {
   id: string
-  site_id: string | null
+  project_id: string | null
 }
 
 type SiteRow = {
@@ -51,9 +51,9 @@ async function SitesContent() {
     { data: projects, error: projectsError },
     { data: sites, error: sitesError },
   ] = await Promise.all([
-    supabase.from('projects').select('id, site_id'),
+    supabase.from('sites').select('id, project_id'),
     supabase
-      .from('sites')
+      .from('projects')
       .select(
         'id, name, public_code, timezone, reminder_time_morning, reminder_time_evening, status',
       )
@@ -64,8 +64,8 @@ async function SitesContent() {
   const typedSites = (sites ?? []) as SiteRow[]
   const projectCountBySite = typedProjects.reduce<Record<string, number>>(
     (acc, project) => {
-      if (project.site_id) {
-        acc[project.site_id] = (acc[project.site_id] ?? 0) + 1
+      if (project.project_id) {
+        acc[project.project_id] = (acc[project.project_id] ?? 0) + 1
       }
       return acc
     },
@@ -88,7 +88,7 @@ async function SitesContent() {
               Run the bootstrap SQL before adding projects.
             </p>
           ) : (
-            <CreateSiteForm />
+            <CreateProjectForm />
           )}
         </CardContent>
       </Card>

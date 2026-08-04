@@ -9,12 +9,15 @@ import { createAdminClient } from '@/supabase/admin'
  *   X-Volecule-Secret: <INGESTION_SHARED_SECRET>
  *
  * Required body fields:
- *   site_id            — UUID of the site (preferred when available), OR
- *   site_code          — stable public code of the site (e.g. BLR-001)
+ *   project_id         — UUID of the project (preferred when available), OR
+ *   project_code       — stable public code of the project (e.g. BLR-001)
  *   shift              — "morning" | "evening" (hidden form field)
  *   external_submission_id — unique ID from Apps Script (timestamp+formId)
  *   submitted_at       — ISO 8601 timestamp of the form submission
  *   form_values        — object with the engineer's answers
+ *
+ * Backward-compatible aliases accepted:
+ *   site_id, site_code
  *
  * Optional body fields (under form_values):
  *   headcount          — object/array
@@ -48,6 +51,8 @@ export async function POST(req: NextRequest) {
   }
 
   const {
+    project_id,
+    project_code,
     site_id,
     site_code,
     shift,
@@ -57,12 +62,22 @@ export async function POST(req: NextRequest) {
   } = body
 
   // 3. Validate required fields
-  const siteId = typeof site_id === 'string' ? site_id.trim() : ''
-  const siteCode = typeof site_code === 'string' ? site_code.trim() : ''
+  const projectId =
+    typeof project_id === 'string'
+      ? project_id.trim()
+      : typeof site_id === 'string'
+        ? site_id.trim()
+        : ''
+  const projectCode =
+    typeof project_code === 'string'
+      ? project_code.trim()
+      : typeof site_code === 'string'
+        ? site_code.trim()
+        : ''
 
-  if (!siteId && !siteCode) {
+  if (!projectId && !projectCode) {
     return NextResponse.json(
-      { error: 'Provide either site_id or site_code' },
+      { error: 'Provide either project_id or project_code' },
       { status: 400 },
     )
   }
@@ -96,39 +111,39 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  // 4. Look up site and resolve log_date using site timezone
+  // 4. Look up project and resolve log_date using project timezone
   const supabase = createAdminClient()
 
   const query = supabase
-    .from('sites')
+    .from('projects')
     .select('id, public_code, status, timezone')
-  const { data: site, error: siteError } = siteId
-    ? await query.eq('id', siteId).single()
-    : await query.eq('public_code', siteCode).single()
+  const { data: project, error: projectError } = projectId
+    ? await query.eq('id', projectId).single()
+    : await query.eq('public_code', projectCode).single()
 
-  if (siteError || !site) {
-    const idType = siteId ? 'site_id' : 'site_code'
+  if (projectError || !project) {
+    const idType = projectId ? 'project_id' : 'project_code'
     return NextResponse.json({ error: `Unknown ${idType}` }, { status: 400 })
   }
 
-  if (siteId && siteCode && site.public_code !== siteCode) {
+  if (projectId && projectCode && project.public_code !== projectCode) {
     return NextResponse.json(
       {
-        error: 'site_id and site_code do not match the same site',
+        error: 'project_id and project_code do not match the same project',
       },
       { status: 400 },
     )
   }
 
-  if (site.status !== 'active') {
+  if (project.status !== 'active') {
     return NextResponse.json(
-      { error: 'Site is not active — submissions rejected' },
+      { error: 'Project is not active — submissions rejected' },
       { status: 400 },
     )
   }
 
-  // Derive log_date in the site's local timezone
-  const logDate = toLocalDateString(submittedDate, site.timezone)
+  // Derive log_date in the project's local timezone
+  const logDate = toLocalDateString(submittedDate, project.timezone)
 
   // 5. Map payload fields
   const fv = (form_values ?? {}) as Record<string, unknown>
@@ -137,10 +152,10 @@ export async function POST(req: NextRequest) {
   const targetsAchievedJson = fv.targets_achieved ?? null
   const freeNotes = typeof fv.free_notes === 'string' ? fv.free_notes : null
 
-  // 6. Upsert — idempotent on (site_id, log_date, shift)
-  const { error: upsertError } = await supabase.from('site_logs').upsert(
+  // 6. Upsert — idempotent on (project_id, log_date, shift)
+  const { error: upsertError } = await supabase.from('project_logs').upsert(
     {
-      site_id: site.id,
+      project_id: project.id,
       log_date: logDate,
       shift,
       headcount_json: headcountJson,
@@ -152,7 +167,7 @@ export async function POST(req: NextRequest) {
       source_payload_json: body,
     },
     {
-      onConflict: 'site_id,log_date,shift',
+      onConflict: 'project_id,log_date,shift',
       ignoreDuplicates: false,
     },
   )

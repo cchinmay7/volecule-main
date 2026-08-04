@@ -1,13 +1,13 @@
 export type ReminderShift = 'morning' | 'evening'
 
 export function buildReminderMessage(
-  siteName: string,
+  projectName: string,
   shift: ReminderShift,
   formUrl: string,
 ): string {
   const greeting = shift === 'morning' ? 'Good morning' : 'Good evening'
   const shiftLabel = shift === 'morning' ? 'morning' : 'evening'
-  return `${greeting}! Please submit your ${shiftLabel} site log for *${siteName}*:\n${formUrl}`
+  return `${greeting}! Please submit your ${shiftLabel} project log for *${projectName}*:\n${formUrl}`
 }
 
 export async function sendWhatsAppTemplate(

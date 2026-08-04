@@ -6,8 +6,8 @@ import { buildReminderMessage, sendWhatsAppTemplate } from '@/utils/reminders'
  * /api/reminders/send
  *
  * Call this from a cron job (e.g. Vercel Cron or Supabase pg_cron) every minute.
- * It reads all active sites whose morning or evening reminder time matches
- * the current time in the site's local timezone, then sends a WhatsApp message
+ * It reads all active projects whose morning or evening reminder time matches
+ * the current time in the project's local timezone, then sends a WhatsApp message
  * with the correct Google Form link.
  *
  * Supports either:
@@ -47,16 +47,19 @@ function isAuthorized(req: NextRequest): boolean {
 async function runReminderDispatch() {
   const supabase = createAdminClient()
 
-  const { data: sites, error } = await supabase
-    .from('sites')
+  const { data: projects, error } = await supabase
+    .from('projects')
     .select(
       'id, name, timezone, reminder_time_morning, reminder_time_evening, google_form_url_morning, google_form_url_evening, whatsapp_target',
     )
     .eq('status', 'active')
 
   if (error) {
-    console.error('[reminders] failed to fetch sites', error)
-    return NextResponse.json({ error: 'Failed to load sites' }, { status: 500 })
+    console.error('[reminders] failed to fetch projects', error)
+    return NextResponse.json(
+      { error: 'Failed to load projects' },
+      { status: 500 },
+    )
   }
 
   const now = new Date()
@@ -65,36 +68,36 @@ async function runReminderDispatch() {
   const dispatched: string[] = []
   const failed: string[] = []
 
-  for (const site of sites ?? []) {
-    const localHHMM = toLocalHHMM(now, site.timezone)
+  for (const project of projects ?? []) {
+    const localHHMM = toLocalHHMM(now, project.timezone)
 
     for (const shift of ['morning', 'evening'] as const) {
       const reminderTime =
         shift === 'morning'
-          ? site.reminder_time_morning
-          : site.reminder_time_evening
+          ? project.reminder_time_morning
+          : project.reminder_time_evening
       const formUrl =
         shift === 'morning'
-          ? site.google_form_url_morning
-          : site.google_form_url_evening
+          ? project.google_form_url_morning
+          : project.google_form_url_evening
 
-      if (!reminderTime || !formUrl || !site.whatsapp_target) continue
+      if (!reminderTime || !formUrl || !project.whatsapp_target) continue
 
       // Compare HH:mm only (seconds may differ in stored value)
       const storedHHMM = reminderTime.slice(0, 5)
       if (storedHHMM !== localHHMM) continue
 
-      const message = buildReminderMessage(site.name, shift, formUrl)
+      const message = buildReminderMessage(project.name, shift, formUrl)
       const ok = await sendWhatsAppTemplate(
-        site.whatsapp_target,
+        project.whatsapp_target,
         formUrl,
         message,
       )
 
       if (ok) {
-        dispatched.push(`${site.id}:${shift}`)
+        dispatched.push(`${project.id}:${shift}`)
       } else {
-        failed.push(`${site.id}:${shift}`)
+        failed.push(`${project.id}:${shift}`)
       }
     }
   }

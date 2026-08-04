@@ -4,9 +4,9 @@ import Link from 'next/link'
 import { useActionState, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import {
-  deleteSiteAction,
-  sendSiteReminderAction,
-  updateSiteAction,
+  deleteProjectAction,
+  sendProjectReminderAction,
+  updateProjectAction,
 } from '@/app/protected/actions'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -39,7 +39,7 @@ function toTimeInputValue(value: string | null): string {
   return value.slice(0, 5)
 }
 
-export function SiteDetailView({
+export function ProjectDetailView({
   site,
   projects,
 }: {
@@ -51,10 +51,10 @@ export function SiteDetailView({
 
   const [updateState, updateAction, updatePending] = useActionState(
     async (
-      prevState: Awaited<ReturnType<typeof updateSiteAction>> | null,
+      prevState: Awaited<ReturnType<typeof updateProjectAction>> | null,
       formData: FormData,
     ) => {
-      const result = await updateSiteAction(prevState, formData)
+      const result = await updateProjectAction(prevState, formData)
       if (result.success) setIsEditing(false)
       return result
     },
@@ -63,10 +63,10 @@ export function SiteDetailView({
 
   const [deleteState, deleteAction, deletePending] = useActionState(
     async (
-      prevState: Awaited<ReturnType<typeof deleteSiteAction>> | null,
+      prevState: Awaited<ReturnType<typeof deleteProjectAction>> | null,
       formData: FormData,
     ) => {
-      const result = await deleteSiteAction(prevState, formData)
+      const result = await deleteProjectAction(prevState, formData)
       if (result.success) router.push('/protected/sites')
       return result
     },
@@ -79,9 +79,9 @@ export function SiteDetailView({
     sendMorningReminderPending,
   ] = useActionState(
     async (
-      prevState: Awaited<ReturnType<typeof sendSiteReminderAction>> | null,
+      prevState: Awaited<ReturnType<typeof sendProjectReminderAction>> | null,
       formData: FormData,
-    ) => sendSiteReminderAction(prevState, formData),
+    ) => sendProjectReminderAction(prevState, formData),
     null,
   )
 
@@ -91,9 +91,9 @@ export function SiteDetailView({
     sendEveningReminderPending,
   ] = useActionState(
     async (
-      prevState: Awaited<ReturnType<typeof sendSiteReminderAction>> | null,
+      prevState: Awaited<ReturnType<typeof sendProjectReminderAction>> | null,
       formData: FormData,
-    ) => sendSiteReminderAction(prevState, formData),
+    ) => sendProjectReminderAction(prevState, formData),
     null,
   )
 
@@ -117,7 +117,7 @@ export function SiteDetailView({
       </div>
 
       <form action={updateAction} className="space-y-4 rounded-md border p-4">
-        <input type="hidden" name="site_id" value={site.id} />
+        <input type="hidden" name="project_id" value={site.id} />
 
         <div className="grid gap-4 md:grid-cols-2">
           <div className="space-y-2">
@@ -289,7 +289,7 @@ export function SiteDetailView({
         <h2 className="text-base font-semibold">Send reminder now</h2>
         <div className="flex flex-wrap gap-3">
           <form action={sendMorningReminderAction} className="space-y-2">
-            <input type="hidden" name="site_id" value={site.id} />
+            <input type="hidden" name="project_id" value={site.id} />
             <input type="hidden" name="shift" value="morning" />
             <Button
               type="submit"
@@ -314,7 +314,7 @@ export function SiteDetailView({
           </form>
 
           <form action={sendEveningReminderAction} className="space-y-2">
-            <input type="hidden" name="site_id" value={site.id} />
+            <input type="hidden" name="project_id" value={site.id} />
             <input type="hidden" name="shift" value="evening" />
             <Button
               type="submit"
@@ -353,7 +353,7 @@ export function SiteDetailView({
           }
         }}
       >
-        <input type="hidden" name="site_id" value={site.id} />
+        <input type="hidden" name="project_id" value={site.id} />
         <Button
           type="submit"
           variant="destructive"

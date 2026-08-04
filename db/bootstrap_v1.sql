@@ -1,6 +1,54 @@
 create extension if not exists pgcrypto;
 
-create table if not exists public.sites (
+-- Canonical v1 model after terminology swap:
+-- - projects: top-level operational project configuration
+-- - sites: site rows linked to one project (sites.project_id)
+-- - project_logs: morning/evening logs linked to one project
+--
+-- This script is safe to re-run and can migrate legacy swap state where:
+-- - old "sites" held project config
+-- - old "projects" held site rows with projects.site_id
+
+-- 1) Swap legacy table names into canonical names when detected.
+do $$
+declare
+  projects_has_public_code boolean;
+  sites_has_public_code boolean;
+  projects_has_site_id boolean;
+begin
+  select exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'projects'
+      and column_name = 'public_code'
+  ) into projects_has_public_code;
+
+  select exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'sites'
+      and column_name = 'public_code'
+  ) into sites_has_public_code;
+
+  select exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'projects'
+      and column_name = 'site_id'
+  ) into projects_has_site_id;
+
+  if sites_has_public_code and projects_has_site_id and not projects_has_public_code then
+    execute 'alter table public.projects rename to sites_swap_tmp';
+    execute 'alter table public.sites rename to projects';
+    execute 'alter table public.sites_swap_tmp rename to sites';
+  end if;
+end $$;
+
+-- 2) Create canonical tables if missing.
+create table if not exists public.projects (
   id uuid primary key default gen_random_uuid(),
   name text not null,
   public_code text,
@@ -11,12 +59,13 @@ create table if not exists public.sites (
   reminder_time_evening time,
   whatsapp_target text,
   status text not null default 'active',
+  created_by uuid references auth.users (id),
   created_at timestamptz not null default now()
 );
 
-create table if not exists public.projects (
+create table if not exists public.sites (
   id uuid primary key default gen_random_uuid(),
-  site_id uuid references public.sites (id) on delete cascade,
+  project_id uuid references public.projects (id) on delete cascade,
   name text not null,
   client_name text not null,
   status text not null default 'active',
@@ -24,11 +73,7 @@ create table if not exists public.projects (
   created_at timestamptz not null default now()
 );
 
--- Ensure site_id exists on projects for site -> many projects model.
-alter table public.projects
-  add column if not exists site_id uuid references public.sites (id) on delete cascade;
-
--- Transitional compatibility: older schema had sites.project_id as NOT NULL.
+-- 3) Align legacy columns to canonical names.
 do $$
 begin
   if exists (
@@ -36,13 +81,18 @@ begin
     from information_schema.columns
     where table_schema = 'public'
       and table_name = 'sites'
+      and column_name = 'site_id'
+  ) and not exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'sites'
       and column_name = 'project_id'
   ) then
-    execute 'alter table public.sites alter column project_id drop not null';
+    execute 'alter table public.sites rename column site_id to project_id';
   end if;
 end $$;
 
--- Backfill projects.site_id from legacy sites.project_id where available.
 do $$
 begin
   if exists (
@@ -50,31 +100,55 @@ begin
     from information_schema.columns
     where table_schema = 'public'
       and table_name = 'sites'
+      and column_name = 'site_id'
+  ) and exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'sites'
       and column_name = 'project_id'
   ) then
-    execute $sql$
-      update public.projects p
-      set site_id = legacy.id
-      from (
-        select distinct on (s.project_id)
-          s.project_id,
-          s.id
-        from public.sites s
-        where s.project_id is not null
-        order by s.project_id, s.created_at asc
-      ) legacy
-      where p.site_id is null
-        and p.id = legacy.project_id
-    $sql$;
+    execute 'update public.sites set project_id = coalesce(project_id, site_id) where project_id is null and site_id is not null';
+    execute 'alter table public.sites drop column site_id';
   end if;
 end $$;
 
 alter table public.sites
-  add column if not exists public_code text;
+  add column if not exists project_id uuid references public.projects (id) on delete cascade;
+alter table public.sites
+  add column if not exists status text not null default 'active';
+alter table public.sites
+  add column if not exists created_by uuid references auth.users (id);
+alter table public.sites
+  add column if not exists created_at timestamptz not null default now();
 
--- Backfill existing sites with deterministic, unique public codes once.
--- Safe to re-run: only updates rows where public_code is currently null.
-update public.sites
+alter table public.projects
+  add column if not exists public_code text;
+alter table public.projects
+  add column if not exists timezone text not null default 'Asia/Kolkata';
+alter table public.projects
+  add column if not exists google_form_url_morning text;
+alter table public.projects
+  add column if not exists google_form_url_evening text;
+alter table public.projects
+  add column if not exists reminder_time_morning time;
+alter table public.projects
+  add column if not exists reminder_time_evening time;
+alter table public.projects
+  add column if not exists whatsapp_target text;
+alter table public.projects
+  add column if not exists status text not null default 'active';
+alter table public.projects
+  add column if not exists created_by uuid references auth.users (id);
+alter table public.projects
+  add column if not exists created_at timestamptz not null default now();
+
+-- Remove legacy column that is no longer part of canonical project schema.
+alter table public.projects
+  drop column if exists project_id;
+
+-- 4) Backfill project public codes once when missing.
+update public.projects
 set public_code = concat(
   left(
     coalesce(
@@ -82,7 +156,7 @@ set public_code = concat(
         trim(both '-' from regexp_replace(upper(name), '[^A-Z0-9]+', '-', 'g')),
         ''
       ),
-      'SITE'
+      'PROJECT'
     ),
     24
   ),
@@ -91,9 +165,27 @@ set public_code = concat(
 )
 where public_code is null;
 
-create table if not exists public.site_logs (
+-- 5) Rename legacy site_logs -> project_logs.
+do $$
+begin
+  if exists (
+    select 1
+    from information_schema.tables
+    where table_schema = 'public'
+      and table_name = 'site_logs'
+  ) and not exists (
+    select 1
+    from information_schema.tables
+    where table_schema = 'public'
+      and table_name = 'project_logs'
+  ) then
+    execute 'alter table public.site_logs rename to project_logs';
+  end if;
+end $$;
+
+create table if not exists public.project_logs (
   id uuid primary key default gen_random_uuid(),
-  site_id uuid not null references public.sites (id) on delete cascade,
+  project_id uuid not null references public.projects (id) on delete cascade,
   log_date date not null,
   shift text not null check (shift in ('morning', 'evening')),
   headcount_json jsonb,
@@ -106,33 +198,94 @@ create table if not exists public.site_logs (
   created_at timestamptz not null default now()
 );
 
--- Uniqueness constraints
-create unique index if not exists site_logs_site_date_shift_unique
-  on public.site_logs (site_id, log_date, shift);
+do $$
+begin
+  if exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'project_logs'
+      and column_name = 'site_id'
+  ) and not exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'project_logs'
+      and column_name = 'project_id'
+  ) then
+    execute 'alter table public.project_logs rename column site_id to project_id';
+  end if;
+end $$;
 
-create unique index if not exists sites_public_code_unique
-  on public.sites (public_code)
+do $$
+begin
+  if exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'project_logs'
+      and column_name = 'site_id'
+  ) and exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'project_logs'
+      and column_name = 'project_id'
+  ) then
+    execute 'update public.project_logs set project_id = coalesce(project_id, site_id) where project_id is null and site_id is not null';
+    execute 'alter table public.project_logs drop column site_id';
+  end if;
+end $$;
+
+-- 6) Rebuild indexes using canonical names.
+drop index if exists public.site_logs_site_date_shift_unique;
+drop index if exists public.site_logs_site_external_submission_unique;
+drop index if exists public.site_logs_site_id_created_at_idx;
+drop index if exists public.sites_public_code_unique;
+drop index if exists public.projects_site_id_idx;
+
+create unique index if not exists project_logs_project_date_shift_unique
+  on public.project_logs (project_id, log_date, shift);
+
+create unique index if not exists projects_public_code_unique
+  on public.projects (public_code)
   where public_code is not null;
 
-create unique index if not exists site_logs_site_external_submission_unique
-  on public.site_logs (site_id, external_submission_id)
+create unique index if not exists project_logs_project_external_submission_unique
+  on public.project_logs (project_id, external_submission_id)
   where external_submission_id is not null;
 
--- Performance indexes
-create index if not exists site_logs_site_id_created_at_idx
-  on public.site_logs (site_id, created_at desc);
+create index if not exists project_logs_project_id_created_at_idx
+  on public.project_logs (project_id, created_at desc);
 
-create index if not exists projects_site_id_idx
-  on public.projects (site_id);
+create index if not exists sites_project_id_idx
+  on public.sites (project_id);
 
--- Row Level Security
--- v1: all authenticated users share access (single-tenant internal tool).
--- Harden to per-user ownership after roles are defined.
+-- 7) Enable Row Level Security.
 alter table public.projects enable row level security;
 alter table public.sites enable row level security;
-alter table public.site_logs enable row level security;
+alter table public.project_logs enable row level security;
 
--- Projects: authenticated users can read/write all rows.
+-- 8) Reset and recreate authenticated policies.
+drop policy if exists "authenticated_read_projects" on public.projects;
+drop policy if exists "authenticated_insert_projects" on public.projects;
+drop policy if exists "authenticated_update_projects" on public.projects;
+drop policy if exists "authenticated_delete_projects" on public.projects;
+
+drop policy if exists "authenticated_read_sites" on public.sites;
+drop policy if exists "authenticated_insert_sites" on public.sites;
+drop policy if exists "authenticated_update_sites" on public.sites;
+drop policy if exists "authenticated_delete_sites" on public.sites;
+
+drop policy if exists "authenticated_read_project_logs" on public.project_logs;
+drop policy if exists "authenticated_insert_project_logs" on public.project_logs;
+drop policy if exists "authenticated_update_project_logs" on public.project_logs;
+drop policy if exists "authenticated_delete_project_logs" on public.project_logs;
+drop policy if exists "authenticated_read_site_logs" on public.project_logs;
+drop policy if exists "authenticated_insert_site_logs" on public.project_logs;
+drop policy if exists "authenticated_update_site_logs" on public.project_logs;
+drop policy if exists "authenticated_delete_site_logs" on public.project_logs;
+
 create policy "authenticated_read_projects"
   on public.projects for select
   to authenticated
@@ -153,7 +306,6 @@ create policy "authenticated_delete_projects"
   to authenticated
   using (true);
 
--- Sites: authenticated users can read/write all rows.
 create policy "authenticated_read_sites"
   on public.sites for select
   to authenticated
@@ -174,25 +326,22 @@ create policy "authenticated_delete_sites"
   to authenticated
   using (true);
 
--- Site logs: authenticated users can read/write all rows.
--- The ingestion endpoint uses the service role key (bypasses RLS),
--- so no anon policy is needed for ingestion.
-create policy "authenticated_read_site_logs"
-  on public.site_logs for select
+create policy "authenticated_read_project_logs"
+  on public.project_logs for select
   to authenticated
   using (true);
 
-create policy "authenticated_insert_site_logs"
-  on public.site_logs for insert
+create policy "authenticated_insert_project_logs"
+  on public.project_logs for insert
   to authenticated
   with check (true);
 
-create policy "authenticated_update_site_logs"
-  on public.site_logs for update
+create policy "authenticated_update_project_logs"
+  on public.project_logs for update
   to authenticated
   using (true);
 
-create policy "authenticated_delete_site_logs"
-  on public.site_logs for delete
+create policy "authenticated_delete_project_logs"
+  on public.project_logs for delete
   to authenticated
   using (true);
