@@ -26,7 +26,6 @@ type SiteRow = {
   id: string
   name: string
   public_code: string | null
-  project_id: string
 }
 
 type ProjectRow = {
@@ -63,21 +62,20 @@ export default async function LogDetailsPage({ params }: LogDetailsPageProps) {
 
   const { data: site } = await supabase
     .from('sites')
-    .select('id, name, public_code, project_id')
+    .select('id, name, public_code')
     .eq('id', (log as LogRow).site_id)
     .single()
 
-  const { data: project } =
-    site && site.project_id
-      ? await supabase
-          .from('projects')
-          .select('id, name')
-          .eq('id', site.project_id)
-          .single()
-      : { data: null }
+  const { data: projects } = site
+    ? await supabase
+        .from('projects')
+        .select('id, name')
+        .eq('site_id', site.id)
+        .order('created_at', { ascending: false })
+    : { data: [] as ProjectRow[] }
 
   const typedSite = site as SiteRow | null
-  const typedProject = project as ProjectRow | null
+  const typedProjects = (projects ?? []) as ProjectRow[]
   const typedLog = log as LogRow
 
   return (
@@ -107,8 +105,10 @@ export default async function LogDetailsPage({ params }: LogDetailsPageProps) {
               {typedSite?.name ?? typedLog.site_id}
             </p>
             <p>
-              <span className="font-medium">Project:</span>{' '}
-              {typedProject?.name ?? typedSite?.project_id ?? '--'}
+              <span className="font-medium">Projects:</span>{' '}
+              {typedProjects.length > 0
+                ? typedProjects.map((project) => project.name).join(', ')
+                : '--'}
             </p>
             <p>
               <span className="font-medium">Public code:</span>{' '}

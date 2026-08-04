@@ -8,12 +8,12 @@ import { unstable_noStore as noStore } from 'next/cache'
 type ProjectRow = {
   id: string
   name: string
+  site_id: string | null
 }
 
 type SiteRow = {
   id: string
   name: string
-  project_id: string
   timezone: string
 }
 
@@ -40,19 +40,22 @@ async function ProtectedDashboardContent() {
     { data: projectsData, error: projectsError },
     { data: sitesData, error: sitesError },
   ] = await Promise.all([
-    supabase.from('projects').select('id, name'),
+    supabase.from('projects').select('id, name, site_id'),
     supabase
       .from('sites')
-      .select('id, name, project_id, timezone')
+      .select('id, name, timezone')
       .order('created_at', { ascending: false }),
   ])
 
   const schemaNotReady = Boolean(projectsError || sitesError)
-  const projectNameById = Object.fromEntries(
-    ((projectsData ?? []) as ProjectRow[]).map((project) => [
-      project.id,
-      project.name,
-    ]),
+  const typedProjects = (projectsData ?? []) as ProjectRow[]
+  const projectNamesBySiteId = typedProjects.reduce<Record<string, string[]>>(
+    (acc, project) => {
+      if (!project.site_id) return acc
+      acc[project.site_id] = [...(acc[project.site_id] ?? []), project.name]
+      return acc
+    },
+    {},
   )
   const typedSites = (sitesData ?? []) as SiteRow[]
 
@@ -88,7 +91,7 @@ async function ProtectedDashboardContent() {
       return {
         siteId: site.id,
         siteName: site.name,
-        projectName: projectNameById[site.project_id] ?? site.project_id,
+        projectNames: projectNamesBySiteId[site.id] ?? [],
         localDate,
         hasMorning,
         hasEvening,
@@ -138,7 +141,10 @@ async function ProtectedDashboardContent() {
                     <div>
                       <p className="font-medium">{site.siteName}</p>
                       <p className="text-muted-foreground text-xs">
-                        Project: {site.projectName}
+                        Projects:{' '}
+                        {site.projectNames.length > 0
+                          ? site.projectNames.join(', ')
+                          : '--'}
                       </p>
                     </div>
                     <span className="text-muted-foreground text-xs">

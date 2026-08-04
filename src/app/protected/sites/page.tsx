@@ -1,4 +1,4 @@
-import Link from 'next/link'
+﻿import Link from 'next/link'
 import { Badge } from '@/components/ui/badge'
 import { buttonVariants } from '@/components/ui/button'
 import {
@@ -17,14 +17,13 @@ import { CreateSiteForm } from './create-site-form'
 
 type ProjectRow = {
   id: string
-  name: string
+  site_id: string | null
 }
 
 type SiteRow = {
   id: string
   name: string
   public_code: string | null
-  project_id: string
   timezone: string
   reminder_time_morning: string | null
   reminder_time_evening: string | null
@@ -52,22 +51,25 @@ async function SitesContent() {
     { data: projects, error: projectsError },
     { data: sites, error: sitesError },
   ] = await Promise.all([
-    supabase
-      .from('projects')
-      .select('id, name')
-      .order('created_at', { ascending: false }),
+    supabase.from('projects').select('id, site_id'),
     supabase
       .from('sites')
       .select(
-        'id, name, public_code, project_id, timezone, reminder_time_morning, reminder_time_evening, status',
+        'id, name, public_code, timezone, reminder_time_morning, reminder_time_evening, status',
       )
       .order('created_at', { ascending: false }),
   ])
 
   const typedProjects = (projects ?? []) as ProjectRow[]
   const typedSites = (sites ?? []) as SiteRow[]
-  const projectNameById = Object.fromEntries(
-    typedProjects.map((project) => [project.id, project.name]),
+  const projectCountBySite = typedProjects.reduce<Record<string, number>>(
+    (acc, project) => {
+      if (project.site_id) {
+        acc[project.site_id] = (acc[project.site_id] ?? 0) + 1
+      }
+      return acc
+    },
+    {},
   )
   const hasSchemaError = Boolean(projectsError || sitesError)
 
@@ -85,12 +87,8 @@ async function SitesContent() {
             <p className="text-muted-foreground text-sm">
               Run the bootstrap SQL before adding sites.
             </p>
-          ) : typedProjects.length === 0 ? (
-            <p className="text-muted-foreground text-sm">
-              Create a project before adding sites.
-            </p>
           ) : (
-            <CreateSiteForm projects={typedProjects} />
+            <CreateSiteForm />
           )}
         </CardContent>
       </Card>
@@ -118,8 +116,7 @@ async function SitesContent() {
                   <div>
                     <p className="font-medium">{site.name}</p>
                     <p className="text-muted-foreground text-xs">
-                      Project:{' '}
-                      {projectNameById[site.project_id] ?? site.project_id}
+                      Projects: {projectCountBySite[site.id] ?? 0}
                     </p>
                     <p className="text-muted-foreground text-xs">
                       Code: {site.public_code ?? '--'} • Timezone:{' '}

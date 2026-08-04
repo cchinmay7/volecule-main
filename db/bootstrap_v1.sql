@@ -1,17 +1,7 @@
 create extension if not exists pgcrypto;
 
-create table if not exists public.projects (
-  id uuid primary key default gen_random_uuid(),
-  name text not null,
-  client_name text not null,
-  status text not null default 'active',
-  created_by uuid references auth.users (id),
-  created_at timestamptz not null default now()
-);
-
 create table if not exists public.sites (
   id uuid primary key default gen_random_uuid(),
-  project_id uuid not null references public.projects (id) on delete cascade,
   name text not null,
   public_code text,
   timezone text not null default 'Asia/Kolkata',
@@ -23,6 +13,61 @@ create table if not exists public.sites (
   status text not null default 'active',
   created_at timestamptz not null default now()
 );
+
+create table if not exists public.projects (
+  id uuid primary key default gen_random_uuid(),
+  site_id uuid references public.sites (id) on delete cascade,
+  name text not null,
+  client_name text not null,
+  status text not null default 'active',
+  created_by uuid references auth.users (id),
+  created_at timestamptz not null default now()
+);
+
+-- Ensure site_id exists on projects for site -> many projects model.
+alter table public.projects
+  add column if not exists site_id uuid references public.sites (id) on delete cascade;
+
+-- Transitional compatibility: older schema had sites.project_id as NOT NULL.
+do $$
+begin
+  if exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'sites'
+      and column_name = 'project_id'
+  ) then
+    execute 'alter table public.sites alter column project_id drop not null';
+  end if;
+end $$;
+
+-- Backfill projects.site_id from legacy sites.project_id where available.
+do $$
+begin
+  if exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'sites'
+      and column_name = 'project_id'
+  ) then
+    execute $sql$
+      update public.projects p
+      set site_id = legacy.id
+      from (
+        select distinct on (s.project_id)
+          s.project_id,
+          s.id
+        from public.sites s
+        where s.project_id is not null
+        order by s.project_id, s.created_at asc
+      ) legacy
+      where p.site_id is null
+        and p.id = legacy.project_id
+    $sql$;
+  end if;
+end $$;
 
 alter table public.sites
   add column if not exists public_code text;
@@ -73,9 +118,12 @@ create unique index if not exists site_logs_site_external_submission_unique
   on public.site_logs (site_id, external_submission_id)
   where external_submission_id is not null;
 
--- Performance index for recent-logs-per-site queries
+-- Performance indexes
 create index if not exists site_logs_site_id_created_at_idx
   on public.site_logs (site_id, created_at desc);
+
+create index if not exists projects_site_id_idx
+  on public.projects (site_id);
 
 -- Row Level Security
 -- v1: all authenticated users share access (single-tenant internal tool).

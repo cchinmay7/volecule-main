@@ -9,7 +9,6 @@ import { SiteDetailView } from './site-detail-view'
 type SiteRow = {
   id: string
   name: string
-  project_id: string
   public_code: string | null
   timezone: string
   google_form_url_morning: string | null
@@ -24,6 +23,8 @@ type SiteRow = {
 type ProjectRow = {
   id: string
   name: string
+  client_name: string
+  status: string
 }
 
 type SiteDetailPageProps = {
@@ -44,13 +45,14 @@ export default async function SiteDetailPage({ params }: SiteDetailPageProps) {
     supabase
       .from('sites')
       .select(
-        'id, name, project_id, public_code, timezone, google_form_url_morning, google_form_url_evening, reminder_time_morning, reminder_time_evening, whatsapp_target, status, created_at',
+        'id, name, public_code, timezone, google_form_url_morning, google_form_url_evening, reminder_time_morning, reminder_time_evening, whatsapp_target, status, created_at',
       )
       .eq('id', siteId)
       .single(),
     supabase
       .from('projects')
-      .select('id, name')
+      .select('id, name, client_name, status')
+      .eq('site_id', siteId)
       .order('created_at', { ascending: false }),
   ])
 
@@ -67,7 +69,7 @@ export default async function SiteDetailPage({ params }: SiteDetailPageProps) {
           </Button>
         </Link>
         <p className="text-destructive text-sm">
-          Could not load project options.
+          Could not load associated projects.
         </p>
       </div>
     )

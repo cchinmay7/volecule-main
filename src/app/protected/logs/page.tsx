@@ -17,12 +17,12 @@ import { unstable_noStore as noStore } from 'next/cache'
 type ProjectRow = {
   id: string
   name: string
+  site_id: string | null
 }
 
 type SiteRow = {
   id: string
   name: string
-  project_id: string
   public_code: string | null
 }
 
@@ -65,8 +65,8 @@ async function LogsContent() {
     { data: sites, error: sitesError },
     { data: logs, error: logsError },
   ] = await Promise.all([
-    supabase.from('projects').select('id, name'),
-    supabase.from('sites').select('id, name, project_id, public_code'),
+    supabase.from('projects').select('id, name, site_id'),
+    supabase.from('sites').select('id, name, public_code'),
     supabase
       .from('site_logs')
       .select('id, site_id, log_date, shift, source, created_at, free_notes')
@@ -74,11 +74,14 @@ async function LogsContent() {
       .limit(50),
   ])
 
-  const projectNameById = Object.fromEntries(
-    ((projects ?? []) as ProjectRow[]).map((project) => [
-      project.id,
-      project.name,
-    ]),
+  const typedProjects = (projects ?? []) as ProjectRow[]
+  const projectNamesBySiteId = typedProjects.reduce<Record<string, string[]>>(
+    (acc, project) => {
+      if (!project.site_id) return acc
+      acc[project.site_id] = [...(acc[project.site_id] ?? []), project.name]
+      return acc
+    },
+    {},
   )
   const siteById = Object.fromEntries(
     ((sites ?? []) as SiteRow[]).map((site) => [site.id, site]),
@@ -103,9 +106,9 @@ async function LogsContent() {
         ) : typedLogs.length > 0 ? (
           typedLogs.map((log) => {
             const site = siteById[log.site_id]
-            const projectName = site
-              ? (projectNameById[site.project_id] ?? site.project_id)
-              : 'Unknown project'
+            const projectNames = site
+              ? (projectNamesBySiteId[site.id] ?? [])
+              : []
 
             return (
               <div
@@ -116,7 +119,9 @@ async function LogsContent() {
                   <div>
                     <p className="font-medium">{site?.name ?? log.site_id}</p>
                     <p className="text-muted-foreground text-xs">
-                      Project: {projectName} • Code: {site?.public_code ?? '--'}
+                      Projects:{' '}
+                      {projectNames.length > 0 ? projectNames.join(', ') : '--'}{' '}
+                      • Code: {site?.public_code ?? '--'}
                     </p>
                     <p className="text-muted-foreground text-xs">
                       {log.log_date} • {log.shift}

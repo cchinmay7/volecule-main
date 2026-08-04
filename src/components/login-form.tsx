@@ -13,8 +13,8 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
-import { useState } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
+import { useMemo, useState } from 'react'
 
 export function LoginForm({
   className,
@@ -25,6 +25,18 @@ export function LoginForm({
   const [error, setError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const router = useRouter()
+  const searchParams = useSearchParams()
+
+  const allowedEmail =
+    process.env.NEXT_PUBLIC_ALLOWED_LOGIN_EMAIL?.trim().toLowerCase()
+
+  const accessError = useMemo(() => {
+    const code = searchParams.get('error')
+    if (code === 'unauthorized') {
+      return 'This account is not allowed to access the dashboard.'
+    }
+    return null
+  }, [searchParams])
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -33,12 +45,16 @@ export function LoginForm({
     setError(null)
 
     try {
+      const normalizedEmail = email.trim().toLowerCase()
+      if (allowedEmail && normalizedEmail !== allowedEmail) {
+        throw new Error('This email is not allowed to sign in.')
+      }
+
       const { error } = await supabase.auth.signInWithPassword({
         email,
         password,
       })
       if (error) throw error
-      // Update this route to redirect to an authenticated route. The user already has an active session.
       router.push('/protected')
     } catch (error: unknown) {
       setError(error instanceof Error ? error.message : 'An error occurred')
@@ -51,9 +67,9 @@ export function LoginForm({
     <div className={cn('flex flex-col gap-6', className)} {...props}>
       <Card>
         <CardHeader>
-          <CardTitle className="text-2xl">Login</CardTitle>
+          <CardTitle className="text-2xl">Sign in</CardTitle>
           <CardDescription>
-            Enter your email below to login to your account
+            Sign in with your authorized Volecule account.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -64,7 +80,7 @@ export function LoginForm({
                 <Input
                   id="email"
                   type="email"
-                  placeholder="m@example.com"
+                  placeholder="you@company.com"
                   required
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
@@ -88,19 +104,13 @@ export function LoginForm({
                   onChange={(e) => setPassword(e.target.value)}
                 />
               </div>
+              {accessError && (
+                <p className="text-sm text-red-500">{accessError}</p>
+              )}
               {error && <p className="text-sm text-red-500">{error}</p>}
               <Button type="submit" className="w-full" disabled={isLoading}>
-                {isLoading ? 'Logging in...' : 'Login'}
+                {isLoading ? 'Signing in...' : 'Sign in'}
               </Button>
-            </div>
-            <div className="mt-4 text-center text-sm">
-              Don&apos;t have an account?{' '}
-              <Link
-                href="/auth/sign-up"
-                className="underline underline-offset-4"
-              >
-                Sign up
-              </Link>
             </div>
           </form>
         </CardContent>

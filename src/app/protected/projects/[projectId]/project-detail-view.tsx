@@ -14,13 +14,14 @@ import { Label } from '@/components/ui/label'
 
 type ProjectDetails = {
   id: string
+  site_id: string | null
   name: string
   client_name: string
   status: string
   created_at: string
 }
 
-type AssociatedSite = {
+type SiteOption = {
   id: string
   name: string
   public_code: string | null
@@ -33,7 +34,7 @@ export function ProjectDetailView({
   sites,
 }: {
   project: ProjectDetails
-  sites: AssociatedSite[]
+  sites: SiteOption[]
 }) {
   const [isEditing, setIsEditing] = useState(false)
   const router = useRouter()
@@ -62,13 +63,17 @@ export function ProjectDetailView({
     null,
   )
 
+  const selectedSite = project.site_id
+    ? (sites.find((site) => site.id === project.site_id) ?? null)
+    : null
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold">{project.name}</h1>
           <p className="text-muted-foreground text-sm">
-            Project details and associated sites.
+            Project details and assigned site.
           </p>
         </div>
         <Button
@@ -105,7 +110,23 @@ export function ProjectDetailView({
             />
           </div>
         </div>
-        <div className="grid gap-4 md:grid-cols-2">
+        <div className="grid gap-4 md:grid-cols-3">
+          <div className="space-y-2">
+            <Label htmlFor="project_site_id">Site</Label>
+            <select
+              id="project_site_id"
+              name="site_id"
+              defaultValue={project.site_id ?? ''}
+              disabled={!isEditing || updatePending || deletePending}
+              className="border-input h-9 w-full rounded-md border bg-transparent px-3 text-sm disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {sites.map((site) => (
+                <option key={site.id} value={site.id}>
+                  {site.name}
+                </option>
+              ))}
+            </select>
+          </div>
           <div className="space-y-2">
             <Label htmlFor="project_status">Status</Label>
             <select
@@ -143,40 +164,33 @@ export function ProjectDetailView({
 
       <section className="space-y-3 rounded-md border p-4">
         <div className="flex items-center justify-between">
-          <h2 className="text-base font-semibold">Associated sites</h2>
-          <Badge variant="outline">{sites.length} sites</Badge>
+          <h2 className="text-base font-semibold">Assigned site</h2>
+          {selectedSite && (
+            <Badge
+              variant={
+                selectedSite.status === 'active' ? 'default' : 'secondary'
+              }
+            >
+              {selectedSite.status}
+            </Badge>
+          )}
         </div>
-        {sites.length > 0 ? (
-          <div className="space-y-3">
-            {sites.map((site) => (
-              <div
-                key={site.id}
-                className="flex flex-wrap items-center justify-between gap-3 rounded-md border px-3 py-3 text-sm"
-              >
-                <div>
-                  <p className="font-medium">{site.name}</p>
-                  <p className="text-muted-foreground text-xs">
-                    Code: {site.public_code ?? '--'} • Timezone: {site.timezone}
-                  </p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Badge
-                    variant={site.status === 'active' ? 'default' : 'secondary'}
-                  >
-                    {site.status}
-                  </Badge>
-                  <Link href={`/protected/sites/${site.id}`}>
-                    <Button type="button" variant="outline" size="sm">
-                      View details
-                    </Button>
-                  </Link>
-                </div>
-              </div>
-            ))}
+        {selectedSite ? (
+          <div className="space-y-2 text-sm">
+            <p className="font-medium">{selectedSite.name}</p>
+            <p className="text-muted-foreground text-xs">
+              Code: {selectedSite.public_code ?? '--'} • Timezone:{' '}
+              {selectedSite.timezone}
+            </p>
+            <Link href={`/protected/sites/${selectedSite.id}`}>
+              <Button type="button" variant="outline" size="sm">
+                View site details
+              </Button>
+            </Link>
           </div>
         ) : (
           <p className="text-muted-foreground text-sm">
-            No sites are associated with this project yet.
+            No site is assigned to this project.
           </p>
         )}
       </section>
@@ -185,11 +199,7 @@ export function ProjectDetailView({
         action={deleteAction}
         className="space-y-2 border-t pt-6"
         onSubmit={(event) => {
-          if (
-            !window.confirm(
-              'Delete this project and all associated sites/logs permanently?',
-            )
-          ) {
+          if (!window.confirm('Delete this project permanently?')) {
             event.preventDefault()
           }
         }}
@@ -202,9 +212,6 @@ export function ProjectDetailView({
         >
           {deletePending ? 'Deleting…' : 'Delete project'}
         </Button>
-        <p className="text-muted-foreground text-xs">
-          This action cascades and removes all associated sites and logs.
-        </p>
         {deleteState && !deleteState.success && (
           <p className="text-destructive text-sm">{deleteState.error}</p>
         )}
