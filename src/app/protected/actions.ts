@@ -14,7 +14,6 @@ export type ActionResult = { success: true } | { success: false; error: string }
 type SiteStatus = 'active' | 'inactive'
 
 type SiteFormValues = {
-  projectId: string
   name: string
   publicCode: string | null
   timezone: string
@@ -71,7 +70,6 @@ function parseSiteFormData(
   formData: FormData,
   options: { requireStatus: boolean },
 ): { values: SiteFormValues } | { error: string } {
-  const projectId = formData.get('project_id')?.toString().trim()
   const name = formData.get('name')?.toString().trim()
   const rawPublicCode = formData.get('public_code')?.toString() ?? ''
   const publicCode = rawPublicCode ? normalizePublicCode(rawPublicCode) : null
@@ -90,8 +88,8 @@ function parseSiteFormData(
   const statusRaw = formData.get('status')?.toString().trim() || 'active'
   const status: SiteStatus = statusRaw === 'inactive' ? 'inactive' : 'active'
 
-  if (!projectId || !name) {
-    return { error: 'Project and site name are required.' }
+  if (!name) {
+    return { error: 'Site name is required.' }
   }
 
   if (
@@ -131,7 +129,6 @@ function parseSiteFormData(
 
   return {
     values: {
-      projectId,
       name,
       publicCode,
       timezone,
@@ -179,11 +176,12 @@ export async function createProjectAction(
 ): Promise<ActionResult> {
   const name = formData.get('name')?.toString().trim()
   const clientName = formData.get('client_name')?.toString().trim()
+  const siteId = formData.get('site_id')?.toString().trim()
 
-  if (!name || !clientName) {
+  if (!name || !clientName || !siteId) {
     return {
       success: false,
-      error: 'Project name and client name are required.',
+      error: 'Project name, client name, and site are required.',
     }
   }
 
@@ -193,7 +191,19 @@ export async function createProjectAction(
   }
 
   const supabase = await createClient()
+
+  const { data: site, error: siteError } = await supabase
+    .from('sites')
+    .select('id')
+    .eq('id', siteId)
+    .maybeSingle()
+
+  if (siteError || !site) {
+    return { success: false, error: 'Site not found.' }
+  }
+
   const { error } = await supabase.from('projects').insert({
+    site_id: siteId,
     name,
     client_name: clientName,
     created_by: auth.userId,
@@ -206,6 +216,7 @@ export async function createProjectAction(
   revalidatePath('/protected')
   revalidatePath('/protected/projects')
   revalidatePath('/protected/sites')
+  revalidatePath(`/protected/sites/${siteId}`)
   return { success: true }
 }
 
@@ -225,30 +236,11 @@ export async function createSiteAction(
 
   const supabase = await createClient()
 
-  // Validate that the project exists and is active.
-  const { data: project, error: projectError } = await supabase
-    .from('projects')
-    .select('id, status')
-    .eq('id', parsed.values.projectId)
-    .single()
-
-  if (projectError || !project) {
-    return { success: false, error: 'Project not found.' }
-  }
-
-  if (project.status !== 'active') {
-    return {
-      success: false,
-      error: 'Cannot add a site to an inactive project.',
-    }
-  }
-
   const writeError = await saveSiteWithPublicCodeRetries({
     siteName: parsed.values.name,
     providedPublicCode: parsed.values.publicCode,
     writeWithPublicCode: async (publicCode) => {
       const { error } = await supabase.from('sites').insert({
-        project_id: parsed.values.projectId,
         name: parsed.values.name,
         public_code: publicCode,
         timezone: parsed.values.timezone,
@@ -290,14 +282,15 @@ export async function updateProjectAction(
   }
 
   const projectId = formData.get('project_id')?.toString().trim()
+  const siteId = formData.get('site_id')?.toString().trim()
   const name = formData.get('name')?.toString().trim()
   const clientName = formData.get('client_name')?.toString().trim()
   const statusRaw = formData.get('status')?.toString().trim()
 
-  if (!projectId || !name || !clientName) {
+  if (!projectId || !siteId || !name || !clientName) {
     return {
       success: false,
-      error: 'Project id, project name, and client name are required.',
+      error: 'Project id, site, project name, and client name are required.',
     }
   }
 
@@ -310,9 +303,20 @@ export async function updateProjectAction(
 
   const supabase = await createClient()
 
+  const { data: site, error: siteError } = await supabase
+    .from('sites')
+    .select('id')
+    .eq('id', siteId)
+    .maybeSingle()
+
+  if (siteError || !site) {
+    return { success: false, error: 'Site not found.' }
+  }
+
   const { data, error } = await supabase
     .from('projects')
     .update({
+      site_id: siteId,
       name,
       client_name: clientName,
       status: statusRaw,
@@ -333,6 +337,7 @@ export async function updateProjectAction(
   revalidatePath('/protected/projects')
   revalidatePath(`/protected/projects/${projectId}`)
   revalidatePath('/protected/sites')
+  revalidatePath(`/protected/sites/${siteId}`)
   revalidatePath('/protected/logs')
   return { success: true }
 }
@@ -360,22 +365,12 @@ export async function updateSiteAction(
 
   const { data: existingSite, error: existingSiteError } = await supabase
     .from('sites')
-    .select('project_id')
+    .select('id')
     .eq('id', siteId)
-    .single()
+    .maybeSingle()
 
   if (existingSiteError || !existingSite) {
     return { success: false, error: 'Site not found.' }
-  }
-
-  const { data: project, error: projectError } = await supabase
-    .from('projects')
-    .select('id')
-    .eq('id', parsed.values.projectId)
-    .single()
-
-  if (projectError || !project) {
-    return { success: false, error: 'Project not found.' }
   }
 
   const writeError = await saveSiteWithPublicCodeRetries({
@@ -385,7 +380,6 @@ export async function updateSiteAction(
       const { error } = await supabase
         .from('sites')
         .update({
-          project_id: parsed.values.projectId,
           name: parsed.values.name,
           public_code: publicCode,
           timezone: parsed.values.timezone,
@@ -417,8 +411,6 @@ export async function updateSiteAction(
 
   revalidatePath('/protected')
   revalidatePath('/protected/projects')
-  revalidatePath(`/protected/projects/${existingSite.project_id}`)
-  revalidatePath(`/protected/projects/${parsed.values.projectId}`)
   revalidatePath('/protected/sites')
   revalidatePath(`/protected/sites/${siteId}`)
   revalidatePath('/protected/logs')
@@ -497,6 +489,7 @@ export async function sendSiteReminderAction(
 
   return { success: true }
 }
+
 export async function deleteProjectAction(
   _prev: ActionResult | null,
   formData: FormData,
@@ -566,7 +559,7 @@ export async function deleteSiteAction(
 
   const { data: existingSite, error: existingSiteError } = await supabase
     .from('sites')
-    .select('project_id')
+    .select('id')
     .eq('id', siteId)
     .maybeSingle()
 
@@ -594,7 +587,6 @@ export async function deleteSiteAction(
 
   revalidatePath('/protected')
   revalidatePath('/protected/projects')
-  revalidatePath(`/protected/projects/${existingSite.project_id}`)
   revalidatePath('/protected/sites')
   revalidatePath(`/protected/sites/${siteId}`)
   revalidatePath('/protected/logs')

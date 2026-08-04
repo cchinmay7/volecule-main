@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useActionState } from 'react'
 import { createProjectAction } from '@/app/protected/actions'
@@ -6,7 +6,9 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 
-export function CreateProjectForm() {
+type SiteOption = { id: string; name: string }
+
+export function CreateProjectForm({ sites }: { sites: SiteOption[] }) {
   const [state, formAction, pending] = useActionState(createProjectAction, null)
 
   return (
@@ -17,6 +19,21 @@ export function CreateProjectForm() {
       {state?.success && (
         <p className="text-sm text-green-600">Project created successfully.</p>
       )}
+      <div className="space-y-2">
+        <Label htmlFor="site_id">Site</Label>
+        <select
+          id="site_id"
+          name="site_id"
+          required
+          className="border-input h-9 w-full rounded-md border bg-transparent px-3 text-sm"
+        >
+          {sites.map((site) => (
+            <option key={site.id} value={site.id}>
+              {site.name}
+            </option>
+          ))}
+        </select>
+      </div>
       <div className="space-y-2">
         <Label htmlFor="name">Project name</Label>
         <Input id="name" name="name" placeholder="Shivalik Floors" required />

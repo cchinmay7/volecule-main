@@ -8,6 +8,7 @@ import { ProjectDetailView } from './project-detail-view'
 
 type ProjectRow = {
   id: string
+  site_id: string | null
   name: string
   client_name: string
   status: string
@@ -41,13 +42,12 @@ export default async function ProjectDetailPage({
   ] = await Promise.all([
     supabase
       .from('projects')
-      .select('id, name, client_name, status, created_at')
+      .select('id, site_id, name, client_name, status, created_at')
       .eq('id', projectId)
       .single(),
     supabase
       .from('sites')
       .select('id, name, public_code, status, timezone')
-      .eq('project_id', projectId)
       .order('created_at', { ascending: false }),
   ])
 
@@ -63,9 +63,7 @@ export default async function ProjectDetailPage({
             Back to projects
           </Button>
         </Link>
-        <p className="text-destructive text-sm">
-          Could not load associated sites.
-        </p>
+        <p className="text-destructive text-sm">Could not load site options.</p>
       </div>
     )
   }

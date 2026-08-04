@@ -16,7 +16,6 @@ import { Label } from '@/components/ui/label'
 type SiteDetails = {
   id: string
   name: string
-  project_id: string
   public_code: string | null
   timezone: string
   google_form_url_morning: string | null
@@ -28,9 +27,11 @@ type SiteDetails = {
   created_at: string
 }
 
-type ProjectOption = {
+type AssociatedProject = {
   id: string
   name: string
+  client_name: string
+  status: string
 }
 
 function toTimeInputValue(value: string | null): string {
@@ -43,7 +44,7 @@ export function SiteDetailView({
   projects,
 }: {
   site: SiteDetails
-  projects: ProjectOption[]
+  projects: AssociatedProject[]
 }) {
   const [isEditing, setIsEditing] = useState(false)
   const router = useRouter()
@@ -95,9 +96,6 @@ export function SiteDetailView({
     ) => sendSiteReminderAction(prevState, formData),
     null,
   )
-  const projectName = projects.find(
-    (project) => project.id === site.project_id,
-  )?.name
 
   return (
     <div className="space-y-6">
@@ -105,9 +103,7 @@ export function SiteDetailView({
         <div>
           <h1 className="text-2xl font-semibold">{site.name}</h1>
           <p className="text-muted-foreground text-sm">
-            {projectName
-              ? `Project: ${projectName}`
-              : 'Project details unavailable'}
+            Site details and associated projects.
           </p>
         </div>
         <Button
@@ -148,22 +144,6 @@ export function SiteDetailView({
 
         <div className="grid gap-4 md:grid-cols-2">
           <div className="space-y-2">
-            <Label htmlFor="project_id">Project</Label>
-            <select
-              id="project_id"
-              name="project_id"
-              defaultValue={site.project_id}
-              disabled={!isEditing || updatePending || deletePending}
-              className="border-input h-9 w-full rounded-md border bg-transparent px-3 text-sm disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {projects.map((project) => (
-                <option key={project.id} value={project.id}>
-                  {project.name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="space-y-2">
             <Label htmlFor="site_status">Status</Label>
             <select
               id="site_status"
@@ -176,17 +156,16 @@ export function SiteDetailView({
               <option value="inactive">inactive</option>
             </select>
           </div>
-        </div>
-
-        <div className="space-y-2">
-          <Label htmlFor="timezone">Timezone</Label>
-          <Input
-            id="timezone"
-            name="timezone"
-            defaultValue={site.timezone}
-            required
-            disabled={!isEditing || updatePending || deletePending}
-          />
+          <div className="space-y-2">
+            <Label htmlFor="timezone">Timezone</Label>
+            <Input
+              id="timezone"
+              name="timezone"
+              defaultValue={site.timezone}
+              required
+              disabled={!isEditing || updatePending || deletePending}
+            />
+          </div>
         </div>
 
         <div className="grid gap-4 md:grid-cols-2">
@@ -264,14 +243,47 @@ export function SiteDetailView({
         )}
       </form>
 
-      <div className="flex flex-wrap items-center gap-2">
-        <Badge variant="outline">Code: {site.public_code ?? '--'}</Badge>
-        <Link href={`/protected/projects/${site.project_id}`}>
-          <Button variant="outline" size="sm" type="button">
-            View project
-          </Button>
-        </Link>
-      </div>
+      <section className="space-y-3 rounded-md border p-4">
+        <div className="flex items-center justify-between">
+          <h2 className="text-base font-semibold">Associated projects</h2>
+          <Badge variant="outline">{projects.length} projects</Badge>
+        </div>
+        {projects.length > 0 ? (
+          <div className="space-y-3">
+            {projects.map((project) => (
+              <div
+                key={project.id}
+                className="flex flex-wrap items-center justify-between gap-3 rounded-md border px-3 py-3 text-sm"
+              >
+                <div>
+                  <p className="font-medium">{project.name}</p>
+                  <p className="text-muted-foreground text-xs">
+                    Client: {project.client_name}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Badge
+                    variant={
+                      project.status === 'active' ? 'default' : 'secondary'
+                    }
+                  >
+                    {project.status}
+                  </Badge>
+                  <Link href={`/protected/projects/${project.id}`}>
+                    <Button type="button" variant="outline" size="sm">
+                      View details
+                    </Button>
+                  </Link>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-muted-foreground text-sm">
+            No projects are associated with this site yet.
+          </p>
+        )}
+      </section>
 
       <section className="space-y-3 rounded-md border p-4">
         <h2 className="text-base font-semibold">Send reminder now</h2>
