@@ -103,7 +103,7 @@ export function SiteDetailView({
         <div>
           <h1 className="text-2xl font-semibold">{site.name}</h1>
           <p className="text-muted-foreground text-sm">
-            Site details and associated projects.
+            Project details and associated sites.
           </p>
         </div>
         <Button
@@ -121,7 +121,7 @@ export function SiteDetailView({
 
         <div className="grid gap-4 md:grid-cols-2">
           <div className="space-y-2">
-            <Label htmlFor="site_name">Site name</Label>
+            <Label htmlFor="site_name">Project name</Label>
             <Input
               id="site_name"
               name="name"
@@ -131,7 +131,7 @@ export function SiteDetailView({
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="public_code">Public code</Label>
+            <Label htmlFor="public_code">Project code</Label>
             <Input
               id="public_code"
               name="public_code"
@@ -144,7 +144,7 @@ export function SiteDetailView({
 
         <div className="grid gap-4 md:grid-cols-2">
           <div className="space-y-2">
-            <Label htmlFor="site_status">Status</Label>
+            <Label htmlFor="site_status">Project status</Label>
             <select
               id="site_status"
               name="status"
@@ -239,14 +239,14 @@ export function SiteDetailView({
           <p className="text-destructive text-sm">{updateState.error}</p>
         )}
         {updateState?.success && (
-          <p className="text-sm text-green-600">Site updated.</p>
+          <p className="text-sm text-green-600">Project updated.</p>
         )}
       </form>
 
       <section className="space-y-3 rounded-md border p-4">
         <div className="flex items-center justify-between">
-          <h2 className="text-base font-semibold">Associated projects</h2>
-          <Badge variant="outline">{projects.length} projects</Badge>
+          <h2 className="text-base font-semibold">Associated sites</h2>
+          <Badge variant="outline">{projects.length} sites</Badge>
         </div>
         {projects.length > 0 ? (
           <div className="space-y-3">
@@ -280,7 +280,7 @@ export function SiteDetailView({
           </div>
         ) : (
           <p className="text-muted-foreground text-sm">
-            No projects are associated with this site yet.
+            No sites are associated with this project yet.
           </p>
         )}
       </section>
@@ -346,7 +346,7 @@ export function SiteDetailView({
         onSubmit={(event) => {
           if (
             !window.confirm(
-              'Delete this site and all associated logs permanently?',
+              'Delete this project and all associated logs permanently?',
             )
           ) {
             event.preventDefault()
@@ -359,7 +359,7 @@ export function SiteDetailView({
           variant="destructive"
           disabled={deletePending || updatePending}
         >
-          {deletePending ? 'Deleting…' : 'Delete site'}
+          {deletePending ? 'Deleting…' : 'Delete project'}
         </Button>
         {deleteState && !deleteState.success && (
           <p className="text-destructive text-sm">{deleteState.error}</p>

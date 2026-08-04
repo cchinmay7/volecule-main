@@ -17,10 +17,10 @@ export function CreateProjectForm({ sites }: { sites: SiteOption[] }) {
         <p className="text-destructive text-sm">{state.error}</p>
       )}
       {state?.success && (
-        <p className="text-sm text-green-600">Project created successfully.</p>
+        <p className="text-sm text-green-600">Site created successfully.</p>
       )}
       <div className="space-y-2">
-        <Label htmlFor="site_id">Site</Label>
+        <Label htmlFor="site_id">Project</Label>
         <select
           id="site_id"
           name="site_id"
@@ -35,7 +35,7 @@ export function CreateProjectForm({ sites }: { sites: SiteOption[] }) {
         </select>
       </div>
       <div className="space-y-2">
-        <Label htmlFor="name">Project name</Label>
+        <Label htmlFor="name">Site name</Label>
         <Input id="name" name="name" placeholder="Shivalik Floors" required />
       </div>
       <div className="space-y-2">
@@ -48,7 +48,7 @@ export function CreateProjectForm({ sites }: { sites: SiteOption[] }) {
         />
       </div>
       <Button type="submit" className="w-full" disabled={pending}>
-        {pending ? 'Creating…' : 'Create project'}
+        {pending ? 'Creating…' : 'Create site'}
       </Button>
     </form>
   )

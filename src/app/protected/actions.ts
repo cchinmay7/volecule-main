@@ -89,7 +89,7 @@ function parseSiteFormData(
   const status: SiteStatus = statusRaw === 'inactive' ? 'inactive' : 'active'
 
   if (!name) {
-    return { error: 'Site name is required.' }
+    return { error: 'Project name is required.' }
   }
 
   if (
@@ -97,13 +97,13 @@ function parseSiteFormData(
     statusRaw !== 'active' &&
     statusRaw !== 'inactive'
   ) {
-    return { error: 'Site status must be active or inactive.' }
+    return { error: 'Project status must be active or inactive.' }
   }
 
   if (publicCode && !SITE_CODE_REGEX.test(publicCode)) {
     return {
       error:
-        'Site code must be 2-64 chars using letters, numbers, underscores, or hyphens.',
+        'Project code must be 2-64 chars using letters, numbers, underscores, or hyphens.',
     }
   }
 
@@ -181,7 +181,7 @@ export async function createProjectAction(
   if (!name || !clientName || !siteId) {
     return {
       success: false,
-      error: 'Project name, client name, and site are required.',
+      error: 'Site name, client name, and project are required.',
     }
   }
 
@@ -199,7 +199,7 @@ export async function createProjectAction(
     .maybeSingle()
 
   if (siteError || !site) {
-    return { success: false, error: 'Site not found.' }
+    return { success: false, error: 'Project not found.' }
   }
 
   const { error } = await supabase.from('projects').insert({
@@ -257,7 +257,7 @@ export async function createSiteAction(
   if (writeError && isPublicCodeConflict(writeError)) {
     return {
       success: false,
-      error: 'Site code already exists. Use a different code.',
+      error: 'Project code already exists. Use a different code.',
     }
   }
 
@@ -290,14 +290,15 @@ export async function updateProjectAction(
   if (!projectId || !siteId || !name || !clientName) {
     return {
       success: false,
-      error: 'Project id, site, project name, and client name are required.',
+      error:
+        'Site id, linked project, site name, and client name are required.',
     }
   }
 
   if (statusRaw !== 'active' && statusRaw !== 'inactive') {
     return {
       success: false,
-      error: 'Project status must be active or inactive.',
+      error: 'Site status must be active or inactive.',
     }
   }
 
@@ -310,7 +311,7 @@ export async function updateProjectAction(
     .maybeSingle()
 
   if (siteError || !site) {
-    return { success: false, error: 'Site not found.' }
+    return { success: false, error: 'Project not found.' }
   }
 
   const { data, error } = await supabase
@@ -330,7 +331,7 @@ export async function updateProjectAction(
   }
 
   if (!data) {
-    return { success: false, error: 'Project not found.' }
+    return { success: false, error: 'Site not found.' }
   }
 
   revalidatePath('/protected')
@@ -353,7 +354,7 @@ export async function updateSiteAction(
 
   const siteId = formData.get('site_id')?.toString().trim()
   if (!siteId) {
-    return { success: false, error: 'Site id is required.' }
+    return { success: false, error: 'Project id is required.' }
   }
 
   const parsed = parseSiteFormData(formData, { requireStatus: true })
@@ -370,7 +371,7 @@ export async function updateSiteAction(
     .maybeSingle()
 
   if (existingSiteError || !existingSite) {
-    return { success: false, error: 'Site not found.' }
+    return { success: false, error: 'Project not found.' }
   }
 
   const writeError = await saveSiteWithPublicCodeRetries({
@@ -401,7 +402,7 @@ export async function updateSiteAction(
   if (writeError && isPublicCodeConflict(writeError)) {
     return {
       success: false,
-      error: 'Site code already exists. Use a different code.',
+      error: 'Project code already exists. Use a different code.',
     }
   }
 
@@ -428,7 +429,7 @@ export async function sendSiteReminderAction(
 
   const siteId = formData.get('site_id')?.toString().trim()
   if (!siteId) {
-    return { success: false, error: 'Site id is required.' }
+    return { success: false, error: 'Project id is required.' }
   }
 
   const shiftRaw = formData.get('shift')?.toString().trim()
@@ -446,11 +447,14 @@ export async function sendSiteReminderAction(
     .maybeSingle()
 
   if (siteError || !site) {
-    return { success: false, error: 'Site not found.' }
+    return { success: false, error: 'Project not found.' }
   }
 
   if (site.status !== 'active') {
-    return { success: false, error: 'Site must be active to send reminders.' }
+    return {
+      success: false,
+      error: 'Project must be active to send reminders.',
+    }
   }
 
   if (!site.whatsapp_target) {
@@ -501,7 +505,7 @@ export async function deleteProjectAction(
 
   const projectId = formData.get('project_id')?.toString().trim()
   if (!projectId) {
-    return { success: false, error: 'Project id is required.' }
+    return { success: false, error: 'Site id is required.' }
   }
 
   const supabase = await createClient()
@@ -512,7 +516,7 @@ export async function deleteProjectAction(
     .maybeSingle()
 
   if (existingProjectError || !existingProject) {
-    return { success: false, error: 'Project not found.' }
+    return { success: false, error: 'Site not found.' }
   }
 
   const { data: deletedProject, error } = await supabase
@@ -529,7 +533,7 @@ export async function deleteProjectAction(
   if (!deletedProject) {
     return {
       success: false,
-      error: 'Project exists but could not be deleted due to database policy.',
+      error: 'Site exists but could not be deleted due to database policy.',
     }
   }
 
@@ -552,7 +556,7 @@ export async function deleteSiteAction(
 
   const siteId = formData.get('site_id')?.toString().trim()
   if (!siteId) {
-    return { success: false, error: 'Site id is required.' }
+    return { success: false, error: 'Project id is required.' }
   }
 
   const supabase = await createClient()
@@ -564,7 +568,7 @@ export async function deleteSiteAction(
     .maybeSingle()
 
   if (existingSiteError || !existingSite) {
-    return { success: false, error: 'Site not found.' }
+    return { success: false, error: 'Project not found.' }
   }
 
   const { data: deletedSite, error } = await supabase
@@ -581,7 +585,7 @@ export async function deleteSiteAction(
   if (!deletedSite) {
     return {
       success: false,
-      error: 'Site exists but could not be deleted due to database policy.',
+      error: 'Project exists but could not be deleted due to database policy.',
     }
   }
 

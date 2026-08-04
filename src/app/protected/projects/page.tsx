@@ -34,7 +34,7 @@ export default function ProjectsPage() {
   return (
     <Suspense
       fallback={
-        <div className="text-muted-foreground text-sm">Loading projects...</div>
+        <div className="text-muted-foreground text-sm">Loading sites...</div>
       }
     >
       <ProjectsContent />
@@ -68,19 +68,19 @@ async function ProjectsContent() {
     <div className="grid gap-6 lg:grid-cols-[360px_1fr]">
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Create project</CardTitle>
+          <CardTitle className="text-base">Create site</CardTitle>
           <CardDescription>
-            Add a project and associate it to a site.
+            Add a site and associate it to a project.
           </CardDescription>
         </CardHeader>
         <CardContent>
           {hasSchemaError ? (
             <p className="text-muted-foreground text-sm">
-              Run the bootstrap SQL before creating projects.
+              Run the bootstrap SQL before creating sites.
             </p>
           ) : typedSites.length === 0 ? (
             <p className="text-muted-foreground text-sm">
-              Create a site before adding projects.
+              Create a project before adding sites.
             </p>
           ) : (
             <CreateProjectForm
@@ -95,10 +95,8 @@ async function ProjectsContent() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Projects</CardTitle>
-          <CardDescription>
-            Browse projects and open full details.
-          </CardDescription>
+          <CardTitle className="text-base">Sites</CardTitle>
+          <CardDescription>Browse sites and open full details.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
           {hasSchemaError ? (
@@ -121,7 +119,7 @@ async function ProjectsContent() {
                         Client: {project.client_name}
                       </p>
                       <p className="text-muted-foreground text-xs">
-                        Site: {site?.name ?? project.site_id ?? '--'}
+                        Project: {site?.name ?? project.site_id ?? '--'}
                       </p>
                     </div>
                     <div className="flex items-center gap-2">
@@ -131,7 +129,7 @@ async function ProjectsContent() {
                             site.status === 'active' ? 'default' : 'secondary'
                           }
                         >
-                          Site {site.status}
+                          Project {site.status}
                         </Badge>
                       )}
                       <Badge
@@ -156,7 +154,7 @@ async function ProjectsContent() {
             })
           ) : (
             <p className="text-muted-foreground text-sm">
-              No projects yet. Create the first project from the form.
+              No sites yet. Create the first site from the form.
             </p>
           )}
         </CardContent>

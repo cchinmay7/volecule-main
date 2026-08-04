@@ -34,7 +34,7 @@ export default function SitesPage() {
   return (
     <Suspense
       fallback={
-        <div className="text-muted-foreground text-sm">Loading sites...</div>
+        <div className="text-muted-foreground text-sm">Loading projects...</div>
       }
     >
       <SitesContent />
@@ -77,7 +77,7 @@ async function SitesContent() {
     <div className="grid gap-6 lg:grid-cols-[380px_1fr]">
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Create site</CardTitle>
+          <CardTitle className="text-base">Create project</CardTitle>
           <CardDescription>
             Configure form links, reminder times, and notification target.
           </CardDescription>
@@ -85,7 +85,7 @@ async function SitesContent() {
         <CardContent>
           {hasSchemaError ? (
             <p className="text-muted-foreground text-sm">
-              Run the bootstrap SQL before adding sites.
+              Run the bootstrap SQL before adding projects.
             </p>
           ) : (
             <CreateSiteForm />
@@ -95,9 +95,9 @@ async function SitesContent() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Sites</CardTitle>
+          <CardTitle className="text-base">Projects</CardTitle>
           <CardDescription>
-            Open a site to view details, edit configuration, or delete it.
+            Open a project to view details, edit configuration, or delete it.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
@@ -116,7 +116,7 @@ async function SitesContent() {
                   <div>
                     <p className="font-medium">{site.name}</p>
                     <p className="text-muted-foreground text-xs">
-                      Projects: {projectCountBySite[site.id] ?? 0}
+                      Sites: {projectCountBySite[site.id] ?? 0}
                     </p>
                     <p className="text-muted-foreground text-xs">
                       Code: {site.public_code ?? '--'} • Timezone:{' '}
@@ -149,7 +149,8 @@ async function SitesContent() {
             ))
           ) : (
             <p className="text-muted-foreground text-sm">
-              No sites yet. Create a site to start morning/evening capture.
+              No projects yet. Create a project to start morning/evening
+              capture.
             </p>
           )}
         </CardContent>

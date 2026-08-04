@@ -73,7 +73,7 @@ export function ProjectDetailView({
         <div>
           <h1 className="text-2xl font-semibold">{project.name}</h1>
           <p className="text-muted-foreground text-sm">
-            Project details and assigned site.
+            Site details and assigned project.
           </p>
         </div>
         <Button
@@ -90,7 +90,7 @@ export function ProjectDetailView({
         <input type="hidden" name="project_id" value={project.id} />
         <div className="grid gap-4 md:grid-cols-2">
           <div className="space-y-2">
-            <Label htmlFor="project_name">Project name</Label>
+            <Label htmlFor="project_name">Site name</Label>
             <Input
               id="project_name"
               name="name"
@@ -112,7 +112,7 @@ export function ProjectDetailView({
         </div>
         <div className="grid gap-4 md:grid-cols-3">
           <div className="space-y-2">
-            <Label htmlFor="project_site_id">Site</Label>
+            <Label htmlFor="project_site_id">Project</Label>
             <select
               id="project_site_id"
               name="site_id"
@@ -128,7 +128,7 @@ export function ProjectDetailView({
             </select>
           </div>
           <div className="space-y-2">
-            <Label htmlFor="project_status">Status</Label>
+            <Label htmlFor="project_status">Site status</Label>
             <select
               id="project_status"
               name="status"
@@ -158,13 +158,13 @@ export function ProjectDetailView({
           <p className="text-destructive text-sm">{updateState.error}</p>
         )}
         {updateState?.success && (
-          <p className="text-sm text-green-600">Project updated.</p>
+          <p className="text-sm text-green-600">Site updated.</p>
         )}
       </form>
 
       <section className="space-y-3 rounded-md border p-4">
         <div className="flex items-center justify-between">
-          <h2 className="text-base font-semibold">Assigned site</h2>
+          <h2 className="text-base font-semibold">Assigned project</h2>
           {selectedSite && (
             <Badge
               variant={
@@ -184,13 +184,13 @@ export function ProjectDetailView({
             </p>
             <Link href={`/protected/sites/${selectedSite.id}`}>
               <Button type="button" variant="outline" size="sm">
-                View site details
+                View project details
               </Button>
             </Link>
           </div>
         ) : (
           <p className="text-muted-foreground text-sm">
-            No site is assigned to this project.
+            No project is assigned to this site.
           </p>
         )}
       </section>
@@ -199,7 +199,7 @@ export function ProjectDetailView({
         action={deleteAction}
         className="space-y-2 border-t pt-6"
         onSubmit={(event) => {
-          if (!window.confirm('Delete this project permanently?')) {
+          if (!window.confirm('Delete this site permanently?')) {
             event.preventDefault()
           }
         }}
@@ -210,7 +210,7 @@ export function ProjectDetailView({
           variant="destructive"
           disabled={deletePending || updatePending}
         >
-          {deletePending ? 'Deleting…' : 'Delete project'}
+          {deletePending ? 'Deleting…' : 'Delete site'}
         </Button>
         {deleteState && !deleteState.success && (
           <p className="text-destructive text-sm">{deleteState.error}</p>

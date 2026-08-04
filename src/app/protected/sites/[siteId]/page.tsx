@@ -65,11 +65,11 @@ export default async function SiteDetailPage({ params }: SiteDetailPageProps) {
       <div className="space-y-4">
         <Link href="/protected/sites">
           <Button variant="outline" size="sm">
-            Back to sites
+            Back to projects
           </Button>
         </Link>
         <p className="text-destructive text-sm">
-          Could not load associated projects.
+          Could not load associated sites.
         </p>
       </div>
     )
@@ -79,7 +79,7 @@ export default async function SiteDetailPage({ params }: SiteDetailPageProps) {
     <div className="space-y-4">
       <Link href="/protected/sites">
         <Button variant="outline" size="sm">
-          Back to sites
+          Back to projects
         </Button>
       </Link>
       <SiteDetailView
