@@ -78,10 +78,6 @@ async function ProjectsContent() {
             <p className="text-muted-foreground text-sm">
               Run the bootstrap SQL before creating sites.
             </p>
-          ) : typedSites.length === 0 ? (
-            <p className="text-muted-foreground text-sm">
-              Create a project before adding sites.
-            </p>
           ) : (
             <CreateProjectForm
               sites={typedSites.map((site) => ({
