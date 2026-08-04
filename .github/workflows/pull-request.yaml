@@ -16,23 +16,26 @@ jobs:
         uses: actions/setup-node@v5
         with:
           node-version-file: '.nvmrc'
-          cache: 'pnpm'
-          cache-dependency-path: pnpm-lock.yaml
+          cache: 'npm'
+          package-manager-cache: false
 
-      - name: Enable Corepack
-        run: corepack enable
+      - name: Install pnpm from packageManager
+        run: |
+          PNPM_VERSION="$(node -p 'require("./package.json").packageManager.match(/pnpm@([^+]+)/)[1]')"
+          npm install -g "pnpm@${PNPM_VERSION}"
+          pnpm --version
 
       - name: Install dependencies
-        run: pnpm i --frozen-lockfile
+        run: pnpm install --frozen-lockfile
 
       - name: Run type check
-        run: pnpm type-check
+        run: pnpm run type-check
 
       - name: Check linting
-        run: pnpm lint
+        run: pnpm run lint
 
       - name: Run format check
-        run: pnpm format-check
+        run: pnpm run format-check
 
       - name: Run tests
-        run: pnpm test:ci
+        run: pnpm run test:ci

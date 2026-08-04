@@ -9,7 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 
 type LogRow = {
   id: string
-  site_id: string
+  project_id: string
   log_date: string
   shift: 'morning' | 'evening'
   source: 'google_form' | 'manual'
@@ -31,6 +31,7 @@ type SiteRow = {
 type ProjectRow = {
   id: string
   name: string
+  client_name: string
 }
 
 type LogDetailsPageProps = {
@@ -49,9 +50,9 @@ export default async function LogDetailsPage({ params }: LogDetailsPageProps) {
   const supabase = await createClient()
 
   const { data: log, error: logError } = await supabase
-    .from('site_logs')
+    .from('project_logs')
     .select(
-      'id, site_id, log_date, shift, source, external_submission_id, headcount_json, targets_selected_json, targets_achieved_json, free_notes, source_payload_json, created_at',
+      'id, project_id, log_date, shift, source, external_submission_id, headcount_json, targets_selected_json, targets_achieved_json, free_notes, source_payload_json, created_at',
     )
     .eq('id', logId)
     .single()
@@ -61,16 +62,16 @@ export default async function LogDetailsPage({ params }: LogDetailsPageProps) {
   }
 
   const { data: site } = await supabase
-    .from('sites')
+    .from('projects')
     .select('id, name, public_code')
-    .eq('id', (log as LogRow).site_id)
+    .eq('id', (log as LogRow).project_id)
     .single()
 
   const { data: projects } = site
     ? await supabase
-        .from('projects')
-        .select('id, name')
-        .eq('site_id', site.id)
+        .from('sites')
+        .select('id, name, client_name')
+        .eq('project_id', site.id)
         .order('created_at', { ascending: false })
     : { data: [] as ProjectRow[] }
 
@@ -102,12 +103,16 @@ export default async function LogDetailsPage({ params }: LogDetailsPageProps) {
           <div className="space-y-1">
             <p>
               <span className="font-medium">Project:</span>{' '}
-              {typedSite?.name ?? typedLog.site_id}
+              {typedSite?.name ?? typedLog.project_id}
             </p>
             <p>
               <span className="font-medium">Sites:</span>{' '}
               {typedProjects.length > 0
-                ? typedProjects.map((project) => project.name).join(', ')
+                ? typedProjects
+                    .map(
+                      (project) => `${project.name} (${project.client_name})`,
+                    )
+                    .join(', ')
                 : '--'}
             </p>
             <p>

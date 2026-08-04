@@ -3,10 +3,7 @@
 import Link from 'next/link'
 import { useActionState, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import {
-  deleteProjectAction,
-  updateProjectAction,
-} from '@/app/protected/actions'
+import { deleteSiteAction, updateSiteAction } from '@/app/protected/actions'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -14,7 +11,7 @@ import { Label } from '@/components/ui/label'
 
 type ProjectDetails = {
   id: string
-  site_id: string | null
+  project_id: string | null
   name: string
   client_name: string
   status: string
@@ -29,7 +26,7 @@ type SiteOption = {
   timezone: string
 }
 
-export function ProjectDetailView({
+export function SiteDetailView({
   project,
   sites,
 }: {
@@ -41,10 +38,10 @@ export function ProjectDetailView({
 
   const [updateState, updateAction, updatePending] = useActionState(
     async (
-      prevState: Awaited<ReturnType<typeof updateProjectAction>> | null,
+      prevState: Awaited<ReturnType<typeof updateSiteAction>> | null,
       formData: FormData,
     ) => {
-      const result = await updateProjectAction(prevState, formData)
+      const result = await updateSiteAction(prevState, formData)
       if (result.success) setIsEditing(false)
       return result
     },
@@ -53,18 +50,18 @@ export function ProjectDetailView({
 
   const [deleteState, deleteAction, deletePending] = useActionState(
     async (
-      prevState: Awaited<ReturnType<typeof deleteProjectAction>> | null,
+      prevState: Awaited<ReturnType<typeof deleteSiteAction>> | null,
       formData: FormData,
     ) => {
-      const result = await deleteProjectAction(prevState, formData)
+      const result = await deleteSiteAction(prevState, formData)
       if (result.success) router.push('/protected/projects')
       return result
     },
     null,
   )
 
-  const selectedSite = project.site_id
-    ? (sites.find((site) => site.id === project.site_id) ?? null)
+  const selectedProject = project.project_id
+    ? (sites.find((site) => site.id === project.project_id) ?? null)
     : null
 
   return (
@@ -87,7 +84,7 @@ export function ProjectDetailView({
       </div>
 
       <form action={updateAction} className="space-y-4 rounded-md border p-4">
-        <input type="hidden" name="project_id" value={project.id} />
+        <input type="hidden" name="site_id" value={project.id} />
         <div className="grid gap-4 md:grid-cols-2">
           <div className="space-y-2">
             <Label htmlFor="project_name">Site name</Label>
@@ -112,11 +109,11 @@ export function ProjectDetailView({
         </div>
         <div className="grid gap-4 md:grid-cols-3">
           <div className="space-y-2">
-            <Label htmlFor="project_site_id">Project</Label>
+            <Label htmlFor="project_project_id">Project</Label>
             <select
-              id="project_site_id"
-              name="site_id"
-              defaultValue={project.site_id ?? ''}
+              id="project_project_id"
+              name="project_id"
+              defaultValue={project.project_id ?? ''}
               disabled={!isEditing || updatePending || deletePending}
               className="border-input h-9 w-full rounded-md border bg-transparent px-3 text-sm disabled:cursor-not-allowed disabled:opacity-50"
             >
@@ -165,24 +162,24 @@ export function ProjectDetailView({
       <section className="space-y-3 rounded-md border p-4">
         <div className="flex items-center justify-between">
           <h2 className="text-base font-semibold">Assigned project</h2>
-          {selectedSite && (
+          {selectedProject && (
             <Badge
               variant={
-                selectedSite.status === 'active' ? 'default' : 'secondary'
+                selectedProject.status === 'active' ? 'default' : 'secondary'
               }
             >
-              {selectedSite.status}
+              {selectedProject.status}
             </Badge>
           )}
         </div>
-        {selectedSite ? (
+        {selectedProject ? (
           <div className="space-y-2 text-sm">
-            <p className="font-medium">{selectedSite.name}</p>
+            <p className="font-medium">{selectedProject.name}</p>
             <p className="text-muted-foreground text-xs">
-              Code: {selectedSite.public_code ?? '--'} • Timezone:{' '}
-              {selectedSite.timezone}
+              Code: {selectedProject.public_code ?? '--'} • Timezone:{' '}
+              {selectedProject.timezone}
             </p>
-            <Link href={`/protected/sites/${selectedSite.id}`}>
+            <Link href={`/protected/sites/${selectedProject.id}`}>
               <Button type="button" variant="outline" size="sm">
                 View project details
               </Button>
@@ -204,7 +201,7 @@ export function ProjectDetailView({
           }
         }}
       >
-        <input type="hidden" name="project_id" value={project.id} />
+        <input type="hidden" name="site_id" value={project.id} />
         <Button
           type="submit"
           variant="destructive"

@@ -4,11 +4,11 @@ import { connection } from 'next/server'
 import { unstable_noStore as noStore } from 'next/cache'
 import { createClient } from '@/supabase/server'
 import { Button } from '@/components/ui/button'
-import { ProjectDetailView } from './project-detail-view'
+import { SiteDetailView } from './site-detail-view'
 
 type ProjectRow = {
   id: string
-  site_id: string | null
+  project_id: string | null
   name: string
   client_name: string
   status: string
@@ -41,12 +41,12 @@ export default async function ProjectDetailPage({
     { data: sites, error: sitesError },
   ] = await Promise.all([
     supabase
-      .from('projects')
-      .select('id, site_id, name, client_name, status, created_at')
+      .from('sites')
+      .select('id, project_id, name, client_name, status, created_at')
       .eq('id', projectId)
       .single(),
     supabase
-      .from('sites')
+      .from('projects')
       .select('id, name, public_code, status, timezone')
       .order('created_at', { ascending: false }),
   ])
@@ -77,7 +77,7 @@ export default async function ProjectDetailPage({
           Back to sites
         </Button>
       </Link>
-      <ProjectDetailView
+      <SiteDetailView
         project={project as ProjectRow}
         sites={(sites ?? []) as SiteRow[]}
       />

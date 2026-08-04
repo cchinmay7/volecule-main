@@ -41,19 +41,19 @@ Run `db/bootstrap_v1.sql` in your Supabase SQL editor.
 
 It includes:
 
-- site -> many projects model (`projects.site_id`)
+- project -> many sites model (`sites.project_id`)
 - legacy schema compatibility updates
 - required RLS delete policies
 
 ## 4) Data Model Checks in App
 
-- A site can have multiple projects
-- Every new project must be linked to a site
-- Sites can exist without projects
+- A project can have multiple sites
+- Every new site must be linked to a project
+- Projects can exist without sites
 
-## 5) Site Configuration in App
+## 5) Project Configuration in App
 
-For each site, confirm:
+For each project, confirm:
 
 - `status = active`
 - `timezone = Asia/Kolkata` (default)
@@ -70,7 +70,7 @@ For each morning/evening form:
    - `POST /api/integrations/google-forms/submit`
 3. Pass required auth header:
    - `x-volecule-secret: <INGESTION_SHARED_SECRET>`
-4. Map form fields correctly (`site_code` or `site_id`, date/shift/headcount/target/notes as configured).
+4. Map form fields correctly (`project_code` or `project_id`, date/shift/headcount/target/notes as configured).
 5. Install `onFormSubmit` trigger (manual runs do not provide the event object).
 
 ## 7) WhatsApp Setup
@@ -84,9 +84,9 @@ For each morning/evening form:
 1. Open `https://volecule-main.vercel.app/`:
    - not logged in -> login page
    - logged in with allowed account -> dashboard
-2. Create/update a site.
-3. Create one or more projects under that site.
-4. Use site page manual buttons:
+2. Create/update a project.
+3. Create one or more sites under that project.
+4. Use project detail page manual buttons:
    - **Send morning form**
    - **Send evening form**
 5. Submit a real Google Form response and verify log ingestion in app.
