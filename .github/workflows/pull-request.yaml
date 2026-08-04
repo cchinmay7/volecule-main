@@ -17,6 +17,7 @@ jobs:
         with:
           node-version-file: '.nvmrc'
           cache: 'npm'
+          package-manager-cache: false
 
       - name: Install pnpm from packageManager
         run: |

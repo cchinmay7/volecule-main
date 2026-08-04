@@ -4,6 +4,7 @@
 
 - Do not rely on `actions/setup-node` to resolve pnpm automatically.
 - Use `actions/setup-node` with `cache: 'npm'` for this repository.
+- Set `package-manager-cache: false` in `actions/setup-node` to disable implicit package-manager cache resolution.
 - Install pnpm explicitly in CI using the version from `package.json` `packageManager`.
 - Preferred workflow pattern:
   1. `actions/checkout`
