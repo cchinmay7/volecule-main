@@ -2,16 +2,15 @@
 
 ## GitHub Actions + pnpm
 
-- Do **not** call `pnpm` directly in workflows.
-- Use `corepack pnpm ...` for install and scripts.
-- In `actions/setup-node`, do **not** set `cache: 'pnpm'` unless pnpm is explicitly installed first in a prior step.
-- In `actions/setup-node`, set `package-manager-cache: false` for this repository to prevent implicit pnpm cache initialization before pnpm is available.
+- Only call `pnpm` in workflows after `pnpm/action-setup@v4` has run.
+- Use `pnpm/action-setup@v4` before `actions/setup-node` when using pnpm in CI.
+- In `actions/setup-node`, use `cache: 'pnpm'` only after pnpm is installed by `pnpm/action-setup`.
 - Preferred workflow pattern:
   1. `actions/checkout`
-  2. `actions/setup-node` (`package-manager-cache: false`)
-  3. `corepack enable`
-  4. `corepack pnpm install --frozen-lockfile`
-  5. `corepack pnpm <script>`
+  2. `pnpm/action-setup@v4` (`run_install: false`)
+  3. `actions/setup-node` (`cache: 'pnpm'`)
+  4. `pnpm install --frozen-lockfile`
+  5. `pnpm run <script>`
 
 ## Package manager version source of truth
 
