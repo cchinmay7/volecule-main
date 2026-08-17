@@ -10,8 +10,9 @@ Set these in Vercel project settings:
 - `SUPABASE_URL`
 - `SUPABASE_ANON_KEY`
 - `SUPABASE_SERVICE_ROLE_KEY`
-- `WHATSAPP_API_URL`
-- `WHATSAPP_API_KEY`
+- `WHATSAPP_GRAPH_API_VERSION`
+- `WHATSAPP_PHONE_NUMBER_ID`
+- `WHATSAPP_ACCESS_TOKEN` (or `WHATSAPP_API_KEY` legacy fallback)
 - `ALLOWED_LOGIN_EMAIL` (server-side allowlist)
 - `NEXT_PUBLIC_ALLOWED_LOGIN_EMAIL` (optional client-side pre-check; set same value)
 
@@ -22,6 +23,7 @@ Optional template vars (if your WhatsApp template needs them):
 - `WHATSAPP_TEMPLATE_BODY_VAR1_MODE`
 - `WHATSAPP_TEMPLATE_BUTTON_URL_VAR1_MODE`
 - `WHATSAPP_TEMPLATE_BUTTON_INDEX`
+- Optional debug var: `WHATSAPP_WABA_ID`
 
 ## 2) Supabase Auth URL Configuration
 
@@ -77,7 +79,7 @@ For each morning/evening form:
 
 - For Meta test mode, recipient must be an approved test recipient.
 - For production sending, use verified business sender/number.
-- Ensure API URL points to correct phone-number endpoint.
+- Ensure phone-number ID is correct; app derives the Graph endpoint automatically.
 
 ## 8) Verification Checklist
 
