@@ -6,11 +6,11 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 
-type SiteOption = { id: string; name: string }
+type ProjectOption = { id: string; name: string }
 
-export function CreateSiteForm({ sites }: { sites: SiteOption[] }) {
+export function CreateSiteForm({ projects }: { projects: ProjectOption[] }) {
   const [state, formAction, pending] = useActionState(createSiteAction, null)
-  const hasProjectOptions = sites.length > 0
+  const hasProjectOptions = projects.length > 0
 
   return (
     <form action={formAction} className="space-y-4">
@@ -30,9 +30,9 @@ export function CreateSiteForm({ sites }: { sites: SiteOption[] }) {
           className="border-input h-9 w-full rounded-md border bg-transparent px-3 text-sm"
         >
           {hasProjectOptions ? (
-            sites.map((site) => (
-              <option key={site.id} value={site.id}>
-                {site.name}
+            projects.map((project) => (
+              <option key={project.id} value={project.id}>
+                {project.name}
               </option>
             ))
           ) : (

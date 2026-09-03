@@ -22,13 +22,13 @@ type LogRow = {
   created_at: string
 }
 
-type SiteRow = {
+type ProjectRow = {
   id: string
   name: string
   public_code: string | null
 }
 
-type ProjectRow = {
+type SiteRow = {
   id: string
   name: string
   client_name: string
@@ -61,22 +61,22 @@ export default async function LogDetailsPage({ params }: LogDetailsPageProps) {
     notFound()
   }
 
-  const { data: site } = await supabase
+  const { data: project } = await supabase
     .from('projects')
     .select('id, name, public_code')
     .eq('id', (log as LogRow).project_id)
     .single()
 
-  const { data: projects } = site
+  const { data: sites } = project
     ? await supabase
         .from('sites')
         .select('id, name, client_name')
-        .eq('project_id', site.id)
+        .eq('project_id', project.id)
         .order('created_at', { ascending: false })
-    : { data: [] as ProjectRow[] }
+    : { data: [] as SiteRow[] }
 
-  const typedSite = site as SiteRow | null
-  const typedProjects = (projects ?? []) as ProjectRow[]
+  const typedProject = project as ProjectRow | null
+  const typedSites = (sites ?? []) as SiteRow[]
   const typedLog = log as LogRow
 
   return (
@@ -103,21 +103,19 @@ export default async function LogDetailsPage({ params }: LogDetailsPageProps) {
           <div className="space-y-1">
             <p>
               <span className="font-medium">Project:</span>{' '}
-              {typedSite?.name ?? typedLog.project_id}
+              {typedProject?.name ?? typedLog.project_id}
             </p>
             <p>
               <span className="font-medium">Sites:</span>{' '}
-              {typedProjects.length > 0
-                ? typedProjects
-                    .map(
-                      (project) => `${project.name} (${project.client_name})`,
-                    )
+              {typedSites.length > 0
+                ? typedSites
+                    .map((site) => `${site.name} (${site.client_name})`)
                     .join(', ')
                 : '--'}
             </p>
             <p>
               <span className="font-medium">Public code:</span>{' '}
-              {typedSite?.public_code ?? '--'}
+              {typedProject?.public_code ?? '--'}
             </p>
             <p>
               <span className="font-medium">Log date:</span> {typedLog.log_date}

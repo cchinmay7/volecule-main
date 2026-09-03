@@ -1,6 +1,6 @@
-﻿import Link from 'next/link'
+import { createClient } from '@/supabase/server'
+import Link from 'next/link'
 import { Badge } from '@/components/ui/badge'
-import { buttonVariants } from '@/components/ui/button'
 import {
   Card,
   CardContent,
@@ -8,25 +8,25 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
-import { createClient } from '@/supabase/server'
+import { buttonVariants } from '@/components/ui/button'
 import { cn } from '@/utils/tailwind'
 import { Suspense } from 'react'
 import { connection } from 'next/server'
 import { unstable_noStore as noStore } from 'next/cache'
-import { CreateProjectForm } from './create-project-form'
-
-type ProjectRow = {
-  id: string
-  project_id: string | null
-}
+import { CreateSiteForm } from './create-site-form'
 
 type SiteRow = {
   id: string
+  project_id: string | null
   name: string
-  public_code: string | null
-  timezone: string
-  reminder_time_morning: string | null
-  reminder_time_evening: string | null
+  client_name: string
+  status: string
+  created_at: string
+}
+
+type ProjectRow = {
+  id: string
+  name: string
   status: string
 }
 
@@ -34,7 +34,7 @@ export default function SitesPage() {
   return (
     <Suspense
       fallback={
-        <div className="text-muted-foreground text-sm">Loading projects...</div>
+        <div className="text-muted-foreground text-sm">Loading sites...</div>
       }
     >
       <SitesContent />
@@ -48,57 +48,53 @@ async function SitesContent() {
 
   const supabase = await createClient()
   const [
-    { data: projects, error: projectsError },
     { data: sites, error: sitesError },
+    { data: projects, error: projectsError },
   ] = await Promise.all([
-    supabase.from('sites').select('id, project_id'),
     supabase
-      .from('projects')
-      .select(
-        'id, name, public_code, timezone, reminder_time_morning, reminder_time_evening, status',
-      )
+      .from('sites')
+      .select('id, project_id, name, client_name, status, created_at')
       .order('created_at', { ascending: false }),
+    supabase.from('projects').select('id, name, status'),
   ])
 
-  const typedProjects = (projects ?? []) as ProjectRow[]
   const typedSites = (sites ?? []) as SiteRow[]
-  const projectCountBySite = typedProjects.reduce<Record<string, number>>(
-    (acc, project) => {
-      if (project.project_id) {
-        acc[project.project_id] = (acc[project.project_id] ?? 0) + 1
-      }
-      return acc
-    },
-    {},
+  const typedProjects = (projects ?? []) as ProjectRow[]
+  const projectById = Object.fromEntries(
+    typedProjects.map((project) => [project.id, project]),
   )
-  const hasSchemaError = Boolean(projectsError || sitesError)
+
+  const hasSchemaError = Boolean(sitesError || projectsError)
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[380px_1fr]">
+    <div className="grid gap-6 lg:grid-cols-[360px_1fr]">
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Create project</CardTitle>
+          <CardTitle className="text-base">Create site</CardTitle>
           <CardDescription>
-            Configure form links, reminder times, and notification target.
+            Add a site and associate it with a project.
           </CardDescription>
         </CardHeader>
         <CardContent>
           {hasSchemaError ? (
             <p className="text-muted-foreground text-sm">
-              Run the bootstrap SQL before adding projects.
+              Run the bootstrap SQL before creating sites.
             </p>
           ) : (
-            <CreateProjectForm />
+            <CreateSiteForm
+              projects={typedProjects.map((project) => ({
+                id: project.id,
+                name: project.name,
+              }))}
+            />
           )}
         </CardContent>
       </Card>
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Projects</CardTitle>
-          <CardDescription>
-            Open a project to view details, edit configuration, or delete it.
-          </CardDescription>
+          <CardTitle className="text-base">Sites</CardTitle>
+          <CardDescription>Browse sites and open full details.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
           {hasSchemaError ? (
@@ -107,50 +103,60 @@ async function SitesContent() {
               refresh this page.
             </p>
           ) : typedSites.length > 0 ? (
-            typedSites.map((site) => (
-              <div
-                key={site.id}
-                className="space-y-3 rounded-md border px-3 py-3 text-sm"
-              >
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div>
-                    <p className="font-medium">{site.name}</p>
-                    <p className="text-muted-foreground text-xs">
-                      Sites: {projectCountBySite[site.id] ?? 0}
-                    </p>
-                    <p className="text-muted-foreground text-xs">
-                      Code: {site.public_code ?? '--'} • Timezone:{' '}
-                      {site.timezone}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Badge variant="outline">
-                      {site.reminder_time_morning ?? '--'} /{' '}
-                      {site.reminder_time_evening ?? '--'}
-                    </Badge>
-                    <Badge
-                      variant={
-                        site.status === 'active' ? 'default' : 'secondary'
-                      }
-                    >
-                      {site.status}
-                    </Badge>
-                  </div>
-                </div>
-                <Link
-                  href={`/protected/sites/${site.id}`}
-                  className={cn(
-                    buttonVariants({ variant: 'outline', size: 'sm' }),
-                  )}
+            typedSites.map((site) => {
+              const project = site.project_id
+                ? projectById[site.project_id]
+                : null
+              return (
+                <div
+                  key={site.id}
+                  className="space-y-3 rounded-md border px-3 py-3 text-sm"
                 >
-                  View details
-                </Link>
-              </div>
-            ))
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <p className="font-medium">{site.name}</p>
+                      <p className="text-muted-foreground text-xs">
+                        Client: {site.client_name}
+                      </p>
+                      <p className="text-muted-foreground text-xs">
+                        Project: {project?.name ?? site.project_id ?? '--'}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {project && (
+                        <Badge
+                          variant={
+                            project.status === 'active'
+                              ? 'default'
+                              : 'secondary'
+                          }
+                        >
+                          Project {project.status}
+                        </Badge>
+                      )}
+                      <Badge
+                        variant={
+                          site.status === 'active' ? 'default' : 'secondary'
+                        }
+                      >
+                        {site.status}
+                      </Badge>
+                    </div>
+                  </div>
+                  <Link
+                    href={`/protected/sites/${site.id}`}
+                    className={cn(
+                      buttonVariants({ variant: 'outline', size: 'sm' }),
+                    )}
+                  >
+                    View details
+                  </Link>
+                </div>
+              )
+            })
           ) : (
             <p className="text-muted-foreground text-sm">
-              No projects yet. Create a project to start morning/evening
-              capture.
+              No sites yet. Create the first site from the form.
             </p>
           )}
         </CardContent>

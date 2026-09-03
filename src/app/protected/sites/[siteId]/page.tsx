@@ -4,18 +4,13 @@ import { connection } from 'next/server'
 import { unstable_noStore as noStore } from 'next/cache'
 import { createClient } from '@/supabase/server'
 import { Button } from '@/components/ui/button'
-import { ProjectDetailView } from './project-detail-view'
+import { SiteDetailView } from './site-detail-view'
 
 type SiteRow = {
   id: string
+  project_id: string | null
   name: string
-  public_code: string | null
-  timezone: string
-  google_form_url_morning: string | null
-  google_form_url_evening: string | null
-  reminder_time_morning: string | null
-  reminder_time_evening: string | null
-  whatsapp_target: string | null
+  client_name: string
   status: string
   created_at: string
 }
@@ -23,8 +18,9 @@ type SiteRow = {
 type ProjectRow = {
   id: string
   name: string
-  client_name: string
+  public_code: string | null
   status: string
+  timezone: string
 }
 
 type SiteDetailPageProps = {
@@ -43,16 +39,13 @@ export default async function SiteDetailPage({ params }: SiteDetailPageProps) {
     { data: projects, error: projectsError },
   ] = await Promise.all([
     supabase
-      .from('projects')
-      .select(
-        'id, name, public_code, timezone, google_form_url_morning, google_form_url_evening, reminder_time_morning, reminder_time_evening, whatsapp_target, status, created_at',
-      )
+      .from('sites')
+      .select('id, project_id, name, client_name, status, created_at')
       .eq('id', siteId)
       .single(),
     supabase
-      .from('sites')
-      .select('id, name, client_name, status')
-      .eq('project_id', siteId)
+      .from('projects')
+      .select('id, name, public_code, status, timezone')
       .order('created_at', { ascending: false }),
   ])
 
@@ -65,11 +58,11 @@ export default async function SiteDetailPage({ params }: SiteDetailPageProps) {
       <div className="space-y-4">
         <Link href="/protected/sites">
           <Button variant="outline" size="sm">
-            Back to projects
+            Back to sites
           </Button>
         </Link>
         <p className="text-destructive text-sm">
-          Could not load associated sites.
+          Could not load project options.
         </p>
       </div>
     )
@@ -79,10 +72,10 @@ export default async function SiteDetailPage({ params }: SiteDetailPageProps) {
     <div className="space-y-4">
       <Link href="/protected/sites">
         <Button variant="outline" size="sm">
-          Back to projects
+          Back to sites
         </Button>
       </Link>
-      <ProjectDetailView
+      <SiteDetailView
         site={site as SiteRow}
         projects={(projects ?? []) as ProjectRow[]}
       />
