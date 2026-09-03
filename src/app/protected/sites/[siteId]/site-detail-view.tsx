@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 
-type ProjectDetails = {
+type SiteDetails = {
   id: string
   project_id: string | null
   name: string
@@ -18,7 +18,7 @@ type ProjectDetails = {
   created_at: string
 }
 
-type SiteOption = {
+type ProjectOption = {
   id: string
   name: string
   public_code: string | null
@@ -27,11 +27,11 @@ type SiteOption = {
 }
 
 export function SiteDetailView({
-  project,
-  sites,
+  site,
+  projects,
 }: {
-  project: ProjectDetails
-  sites: SiteOption[]
+  site: SiteDetails
+  projects: ProjectOption[]
 }) {
   const [isEditing, setIsEditing] = useState(false)
   const router = useRouter()
@@ -54,21 +54,21 @@ export function SiteDetailView({
       formData: FormData,
     ) => {
       const result = await deleteSiteAction(prevState, formData)
-      if (result.success) router.push('/protected/projects')
+      if (result.success) router.push('/protected/sites')
       return result
     },
     null,
   )
 
-  const selectedProject = project.project_id
-    ? (sites.find((site) => site.id === project.project_id) ?? null)
+  const selectedProject = site.project_id
+    ? (projects.find((project) => project.id === site.project_id) ?? null)
     : null
 
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold">{project.name}</h1>
+          <h1 className="text-2xl font-semibold">{site.name}</h1>
           <p className="text-muted-foreground text-sm">
             Site details and assigned project.
           </p>
@@ -84,14 +84,14 @@ export function SiteDetailView({
       </div>
 
       <form action={updateAction} className="space-y-4 rounded-md border p-4">
-        <input type="hidden" name="site_id" value={project.id} />
+        <input type="hidden" name="site_id" value={site.id} />
         <div className="grid gap-4 md:grid-cols-2">
           <div className="space-y-2">
-            <Label htmlFor="project_name">Site name</Label>
+            <Label htmlFor="site_name">Site name</Label>
             <Input
-              id="project_name"
+              id="site_name"
               name="name"
-              defaultValue={project.name}
+              defaultValue={site.name}
               required
               disabled={!isEditing || updatePending || deletePending}
             />
@@ -101,7 +101,7 @@ export function SiteDetailView({
             <Input
               id="client_name"
               name="client_name"
-              defaultValue={project.client_name}
+              defaultValue={site.client_name}
               required
               disabled={!isEditing || updatePending || deletePending}
             />
@@ -109,27 +109,27 @@ export function SiteDetailView({
         </div>
         <div className="grid gap-4 md:grid-cols-3">
           <div className="space-y-2">
-            <Label htmlFor="project_project_id">Project</Label>
+            <Label htmlFor="site_project_id">Project</Label>
             <select
-              id="project_project_id"
+              id="site_project_id"
               name="project_id"
-              defaultValue={project.project_id ?? ''}
+              defaultValue={site.project_id ?? ''}
               disabled={!isEditing || updatePending || deletePending}
               className="border-input h-9 w-full rounded-md border bg-transparent px-3 text-sm disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {sites.map((site) => (
-                <option key={site.id} value={site.id}>
-                  {site.name}
+              {projects.map((project) => (
+                <option key={project.id} value={project.id}>
+                  {project.name}
                 </option>
               ))}
             </select>
           </div>
           <div className="space-y-2">
-            <Label htmlFor="project_status">Site status</Label>
+            <Label htmlFor="site_status">Site status</Label>
             <select
-              id="project_status"
+              id="site_status"
               name="status"
-              defaultValue={project.status}
+              defaultValue={site.status}
               disabled={!isEditing || updatePending || deletePending}
               className="border-input h-9 w-full rounded-md border bg-transparent px-3 text-sm disabled:cursor-not-allowed disabled:opacity-50"
             >
@@ -140,7 +140,7 @@ export function SiteDetailView({
           <div className="space-y-2">
             <Label>Created at</Label>
             <p className="text-muted-foreground border-input rounded-md border px-3 py-2 text-sm">
-              {new Date(project.created_at).toLocaleString()}
+              {new Date(site.created_at).toLocaleString()}
             </p>
           </div>
         </div>
@@ -179,7 +179,7 @@ export function SiteDetailView({
               Code: {selectedProject.public_code ?? '--'} • Timezone:{' '}
               {selectedProject.timezone}
             </p>
-            <Link href={`/protected/sites/${selectedProject.id}`}>
+            <Link href={`/protected/projects/${selectedProject.id}`}>
               <Button type="button" variant="outline" size="sm">
                 View project details
               </Button>
@@ -201,7 +201,7 @@ export function SiteDetailView({
           }
         }}
       >
-        <input type="hidden" name="site_id" value={project.id} />
+        <input type="hidden" name="site_id" value={site.id} />
         <Button
           type="submit"
           variant="destructive"

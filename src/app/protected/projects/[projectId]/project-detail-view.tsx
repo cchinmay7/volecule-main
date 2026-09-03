@@ -13,7 +13,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 
-type SiteDetails = {
+type ProjectDetails = {
   id: string
   name: string
   public_code: string | null
@@ -27,7 +27,7 @@ type SiteDetails = {
   created_at: string
 }
 
-type AssociatedProject = {
+type AssociatedSite = {
   id: string
   name: string
   client_name: string
@@ -40,11 +40,11 @@ function toTimeInputValue(value: string | null): string {
 }
 
 export function ProjectDetailView({
-  site,
-  projects,
+  project,
+  sites,
 }: {
-  site: SiteDetails
-  projects: AssociatedProject[]
+  project: ProjectDetails
+  sites: AssociatedSite[]
 }) {
   const [isEditing, setIsEditing] = useState(false)
   const router = useRouter()
@@ -67,7 +67,7 @@ export function ProjectDetailView({
       formData: FormData,
     ) => {
       const result = await deleteProjectAction(prevState, formData)
-      if (result.success) router.push('/protected/sites')
+      if (result.success) router.push('/protected/projects')
       return result
     },
     null,
@@ -101,7 +101,7 @@ export function ProjectDetailView({
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold">{site.name}</h1>
+          <h1 className="text-2xl font-semibold">{project.name}</h1>
           <p className="text-muted-foreground text-sm">
             Project details and associated sites.
           </p>
@@ -117,15 +117,15 @@ export function ProjectDetailView({
       </div>
 
       <form action={updateAction} className="space-y-4 rounded-md border p-4">
-        <input type="hidden" name="project_id" value={site.id} />
+        <input type="hidden" name="project_id" value={project.id} />
 
         <div className="grid gap-4 md:grid-cols-2">
           <div className="space-y-2">
-            <Label htmlFor="site_name">Project name</Label>
+            <Label htmlFor="project_name">Project name</Label>
             <Input
-              id="site_name"
+              id="project_name"
               name="name"
-              defaultValue={site.name}
+              defaultValue={project.name}
               required
               disabled={!isEditing || updatePending || deletePending}
             />
@@ -135,7 +135,7 @@ export function ProjectDetailView({
             <Input
               id="public_code"
               name="public_code"
-              defaultValue={site.public_code ?? ''}
+              defaultValue={project.public_code ?? ''}
               placeholder="Auto-generated if left blank"
               disabled={!isEditing || updatePending || deletePending}
             />
@@ -144,11 +144,11 @@ export function ProjectDetailView({
 
         <div className="grid gap-4 md:grid-cols-2">
           <div className="space-y-2">
-            <Label htmlFor="site_status">Project status</Label>
+            <Label htmlFor="project_status">Project status</Label>
             <select
-              id="site_status"
+              id="project_status"
               name="status"
-              defaultValue={site.status}
+              defaultValue={project.status}
               disabled={!isEditing || updatePending || deletePending}
               className="border-input h-9 w-full rounded-md border bg-transparent px-3 text-sm disabled:cursor-not-allowed disabled:opacity-50"
             >
@@ -161,7 +161,7 @@ export function ProjectDetailView({
             <Input
               id="timezone"
               name="timezone"
-              defaultValue={site.timezone}
+              defaultValue={project.timezone}
               required
               disabled={!isEditing || updatePending || deletePending}
             />
@@ -174,7 +174,7 @@ export function ProjectDetailView({
             <Input
               id="morning_form"
               name="google_form_url_morning"
-              defaultValue={site.google_form_url_morning ?? ''}
+              defaultValue={project.google_form_url_morning ?? ''}
               disabled={!isEditing || updatePending || deletePending}
             />
           </div>
@@ -183,7 +183,7 @@ export function ProjectDetailView({
             <Input
               id="evening_form"
               name="google_form_url_evening"
-              defaultValue={site.google_form_url_evening ?? ''}
+              defaultValue={project.google_form_url_evening ?? ''}
               disabled={!isEditing || updatePending || deletePending}
             />
           </div>
@@ -196,7 +196,7 @@ export function ProjectDetailView({
               id="morning_reminder"
               name="reminder_time_morning"
               type="time"
-              defaultValue={toTimeInputValue(site.reminder_time_morning)}
+              defaultValue={toTimeInputValue(project.reminder_time_morning)}
               disabled={!isEditing || updatePending || deletePending}
             />
           </div>
@@ -206,7 +206,7 @@ export function ProjectDetailView({
               id="evening_reminder"
               name="reminder_time_evening"
               type="time"
-              defaultValue={toTimeInputValue(site.reminder_time_evening)}
+              defaultValue={toTimeInputValue(project.reminder_time_evening)}
               disabled={!isEditing || updatePending || deletePending}
             />
           </div>
@@ -217,7 +217,7 @@ export function ProjectDetailView({
           <Input
             id="whatsapp_target"
             name="whatsapp_target"
-            defaultValue={site.whatsapp_target ?? ''}
+            defaultValue={project.whatsapp_target ?? ''}
             disabled={!isEditing || updatePending || deletePending}
           />
         </div>
@@ -225,7 +225,7 @@ export function ProjectDetailView({
         <div className="space-y-2">
           <Label>Created at</Label>
           <p className="text-muted-foreground border-input rounded-md border px-3 py-2 text-sm">
-            {new Date(site.created_at).toLocaleString()}
+            {new Date(project.created_at).toLocaleString()}
           </p>
         </div>
 
@@ -246,30 +246,28 @@ export function ProjectDetailView({
       <section className="space-y-3 rounded-md border p-4">
         <div className="flex items-center justify-between">
           <h2 className="text-base font-semibold">Associated sites</h2>
-          <Badge variant="outline">{projects.length} sites</Badge>
+          <Badge variant="outline">{sites.length} sites</Badge>
         </div>
-        {projects.length > 0 ? (
+        {sites.length > 0 ? (
           <div className="space-y-3">
-            {projects.map((project) => (
+            {sites.map((site) => (
               <div
-                key={project.id}
+                key={site.id}
                 className="flex flex-wrap items-center justify-between gap-3 rounded-md border px-3 py-3 text-sm"
               >
                 <div>
-                  <p className="font-medium">{project.name}</p>
+                  <p className="font-medium">{site.name}</p>
                   <p className="text-muted-foreground text-xs">
-                    Client: {project.client_name}
+                    Client: {site.client_name}
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
                   <Badge
-                    variant={
-                      project.status === 'active' ? 'default' : 'secondary'
-                    }
+                    variant={site.status === 'active' ? 'default' : 'secondary'}
                   >
-                    {project.status}
+                    {site.status}
                   </Badge>
-                  <Link href={`/protected/projects/${project.id}`}>
+                  <Link href={`/protected/sites/${site.id}`}>
                     <Button type="button" variant="outline" size="sm">
                       View details
                     </Button>
@@ -289,7 +287,7 @@ export function ProjectDetailView({
         <h2 className="text-base font-semibold">Send reminder now</h2>
         <div className="flex flex-wrap gap-3">
           <form action={sendMorningReminderAction} className="space-y-2">
-            <input type="hidden" name="project_id" value={site.id} />
+            <input type="hidden" name="project_id" value={project.id} />
             <input type="hidden" name="shift" value="morning" />
             <Button
               type="submit"
@@ -314,7 +312,7 @@ export function ProjectDetailView({
           </form>
 
           <form action={sendEveningReminderAction} className="space-y-2">
-            <input type="hidden" name="project_id" value={site.id} />
+            <input type="hidden" name="project_id" value={project.id} />
             <input type="hidden" name="shift" value="evening" />
             <Button
               type="submit"
@@ -353,7 +351,7 @@ export function ProjectDetailView({
           }
         }}
       >
-        <input type="hidden" name="project_id" value={site.id} />
+        <input type="hidden" name="project_id" value={project.id} />
         <Button
           type="submit"
           variant="destructive"

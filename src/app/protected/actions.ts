@@ -268,8 +268,8 @@ export async function createSiteAction(
 
   revalidatePath('/protected')
   revalidatePath('/protected/projects')
+  revalidatePath(`/protected/projects/${projectId}`)
   revalidatePath('/protected/sites')
-  revalidatePath(`/protected/sites/${projectId}`)
   return { success: true }
 }
 
@@ -341,8 +341,8 @@ export async function updateProjectAction(
 
   revalidatePath('/protected')
   revalidatePath('/protected/projects')
+  revalidatePath(`/protected/projects/${projectId}`)
   revalidatePath('/protected/sites')
-  revalidatePath(`/protected/sites/${projectId}`)
   revalidatePath('/protected/logs')
   return { success: true }
 }
@@ -421,11 +421,11 @@ export async function updateSiteAction(
 
   revalidatePath('/protected')
   revalidatePath('/protected/projects')
-  revalidatePath(`/protected/projects/${siteId}`)
+  revalidatePath(`/protected/projects/${projectId}`)
   revalidatePath('/protected/sites')
-  revalidatePath(`/protected/sites/${projectId}`)
+  revalidatePath(`/protected/sites/${siteId}`)
   if (existingSite.project_id && existingSite.project_id !== projectId) {
-    revalidatePath(`/protected/sites/${existingSite.project_id}`)
+    revalidatePath(`/protected/projects/${existingSite.project_id}`)
   }
   revalidatePath('/protected/logs')
   return { success: true }
@@ -553,8 +553,8 @@ export async function deleteProjectAction(
 
   revalidatePath('/protected')
   revalidatePath('/protected/projects')
+  revalidatePath(`/protected/projects/${projectId}`)
   revalidatePath('/protected/sites')
-  revalidatePath(`/protected/sites/${projectId}`)
   revalidatePath('/protected/logs')
   return { success: true }
 }
@@ -605,11 +605,11 @@ export async function deleteSiteAction(
 
   revalidatePath('/protected')
   revalidatePath('/protected/projects')
-  revalidatePath(`/protected/projects/${siteId}`)
-  revalidatePath('/protected/sites')
   if (existingSite.project_id) {
-    revalidatePath(`/protected/sites/${existingSite.project_id}`)
+    revalidatePath(`/protected/projects/${existingSite.project_id}`)
   }
+  revalidatePath('/protected/sites')
+  revalidatePath(`/protected/sites/${siteId}`)
   revalidatePath('/protected/logs')
   return { success: true }
 }
