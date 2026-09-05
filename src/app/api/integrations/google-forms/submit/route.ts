@@ -1,5 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/supabase/admin'
+import { normalizeTaskId } from '@/utils/scheduler/task-id'
+import {
+  applyMissedTargets,
+  applyTaskCompletions,
+} from '@/utils/scheduler/propagate'
 
 /**
  * POST /api/integrations/google-forms/submit
@@ -153,28 +158,114 @@ export async function POST(req: NextRequest) {
   const freeNotes = typeof fv.free_notes === 'string' ? fv.free_notes : null
 
   // 6. Upsert — idempotent on (project_id, log_date, shift)
-  const { error: upsertError } = await supabase.from('project_logs').upsert(
-    {
-      project_id: project.id,
-      log_date: logDate,
-      shift,
-      headcount_json: headcountJson,
-      targets_selected_json: targetsSelectedJson,
-      targets_achieved_json: targetsAchievedJson,
-      free_notes: freeNotes,
-      source: 'google_form',
-      external_submission_id,
-      source_payload_json: body,
-    },
-    {
-      onConflict: 'project_id,log_date,shift',
-      ignoreDuplicates: false,
-    },
-  )
+  const { data: upsertedLog, error: upsertError } = await supabase
+    .from('project_logs')
+    .upsert(
+      {
+        project_id: project.id,
+        log_date: logDate,
+        shift,
+        headcount_json: headcountJson,
+        targets_selected_json: targetsSelectedJson,
+        targets_achieved_json: targetsAchievedJson,
+        free_notes: freeNotes,
+        source: 'google_form',
+        external_submission_id,
+        source_payload_json: body,
+      },
+      {
+        onConflict: 'project_id,log_date,shift',
+        ignoreDuplicates: false,
+      },
+    )
+    .select('id')
+    .single()
 
   if (upsertError) {
     console.error('[ingestion] upsert error', upsertError)
     return NextResponse.json({ error: 'Failed to save log' }, { status: 500 })
+  }
+
+  // 7. Trigger schedule propagation for evening submissions.
+  // A project with no imported schedule yet simply has no candidate tasks
+  // below, so this is a no-op for it rather than needing its own check.
+  if (shift === 'evening') {
+    try {
+      const achievedIds = new Set<string>()
+      if (Array.isArray(targetsAchievedJson)) {
+        for (const label of targetsAchievedJson) {
+          if (typeof label !== 'string') continue
+          const normalized = normalizeTaskId(label)
+          if (normalized) achievedIds.add(normalized)
+        }
+      }
+
+      const { data: candidateTasks, error: tasksError } = await supabase
+        .from('schedule_tasks')
+        .select('id, external_ref, current_planned_end')
+        .eq('project_id', project.id)
+        .in('status', ['pending', 'missed'])
+
+      if (tasksError) {
+        console.error('[ingestion] task query error', tasksError)
+      } else if (candidateTasks && candidateTasks.length > 0) {
+        const completions: { taskId: string; actualEnd: string }[] = []
+        const missed: string[] = []
+
+        for (const task of candidateTasks) {
+          const externalRef = task.external_ref as string | null
+          const normalized = externalRef ? normalizeTaskId(externalRef) : null
+          const plannedEnd = task.current_planned_end as string
+
+          if (normalized && achievedIds.has(normalized)) {
+            completions.push({ taskId: task.id as string, actualEnd: logDate })
+          } else if (plannedEnd <= logDate) {
+            missed.push(task.id as string)
+          }
+          // else: not due yet — leave untouched
+        }
+
+        if (completions.length > 0) {
+          const outcome = await applyTaskCompletions({
+            supabase,
+            projectId: project.id,
+            completions,
+            today: logDate,
+          })
+          if (outcome.success) {
+            console.info('[ingestion] completions applied', {
+              count: completions.length,
+              tasksChanged: outcome.tasksChanged,
+              versionNumber: outcome.versionNumber,
+            })
+          } else {
+            console.error('[ingestion] completions failed', outcome.error)
+          }
+        }
+
+        if (missed.length > 0) {
+          const outcome = await applyMissedTargets({
+            supabase,
+            projectId: project.id,
+            missedTaskIds: missed,
+            triggerProjectLogId: upsertedLog?.id ?? null,
+            missReason: freeNotes,
+          })
+          if (outcome.success) {
+            console.info('[ingestion] missed targets applied', {
+              count: missed.length,
+              tasksChanged: outcome.tasksChanged,
+              versionNumber: outcome.versionNumber,
+            })
+          } else {
+            console.error('[ingestion] missed targets failed', outcome.error)
+          }
+        }
+      }
+    } catch (propagationError) {
+      console.error('[ingestion] schedule propagation error', propagationError)
+      // Never fail log ingestion because of a propagation error.
+    }
   }
 
   return NextResponse.json(
