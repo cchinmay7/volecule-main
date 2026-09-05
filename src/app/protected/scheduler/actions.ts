@@ -10,8 +10,6 @@ export type ImportScheduleResult =
   | { success: true; message: string }
   | { success: false; error: string }
 
-const SCHEDULE_IMPORTS_BUCKET = 'schedule-imports'
-
 async function getAuthenticatedUserId(): Promise<
   { userId: string } | { error: string }
 > {
@@ -67,21 +65,15 @@ export async function importScheduleAction(
     return { success: false, error: outcome.error }
   }
 
-  // Archive the raw file — best-effort. A missing/misconfigured Storage
-  // bucket doesn't fail the import itself; the schedule is already written.
-  const storagePath = `${projectId}/${Date.now()}-${file.name}`
-  const { error: uploadError } = await admin.storage
-    .from(SCHEDULE_IMPORTS_BUCKET)
-    .upload(storagePath, buffer, {
-      contentType:
-        file.type ||
-        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    })
-
+  // Raw file archival is deferred — Vercel's serverless functions have no
+  // persistent local filesystem (only /tmp, wiped per invocation), so
+  // "store it locally" isn't viable in production the way it is in local
+  // dev. Metadata is recorded now; real archival (Supabase Storage or
+  // otherwise) is a later addition, not a blocker.
   await admin.from('schedule_imports').insert({
     project_id: projectId,
     schedule_version_id: null,
-    storage_path: uploadError ? 'upload-failed' : storagePath,
+    storage_path: null,
     original_filename: file.name,
     row_count: parseResult.tasks.length,
     parsed_task_count: parseResult.tasks.length,

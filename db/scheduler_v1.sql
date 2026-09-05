@@ -126,7 +126,7 @@ create table if not exists public.schedule_imports (
   id uuid primary key default gen_random_uuid(),
   project_id uuid not null references public.projects (id) on delete cascade,
   schedule_version_id uuid references public.schedule_versions (id) on delete set null,
-  storage_path text not null,
+  storage_path text,
   original_filename text,
   row_count int,
   parsed_task_count int,
@@ -134,6 +134,12 @@ create table if not exists public.schedule_imports (
   created_by uuid references auth.users (id),
   created_at timestamptz not null default now()
 );
+
+-- Raw file archival is deferred (see src/app/protected/scheduler/actions.ts) —
+-- storage_path is nullable until real archival is added. Idempotent against
+-- the already-applied version of this script, which had it NOT NULL.
+alter table public.schedule_imports
+  alter column storage_path drop not null;
 
 create index if not exists schedule_imports_project_id_idx
   on public.schedule_imports (project_id);
