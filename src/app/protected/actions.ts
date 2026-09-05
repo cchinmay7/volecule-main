@@ -4,33 +4,18 @@ import { revalidatePath } from 'next/cache'
 
 import { createClient } from '@/supabase/server'
 import { buildReminderMessage, sendWhatsAppTemplate } from '@/utils/reminders'
+import {
+  generatePublicCode,
+  isPublicCodeConflict,
+  parseProjectFormData,
+  type DbError,
+} from '@/app/protected/project-form'
 
-const DEFAULT_PROJECT_TIMEZONE = 'Asia/Kolkata'
-const HH_MM_REGEX = /^([01]\d|2[0-3]):[0-5]\d$/
-const PROJECT_CODE_REGEX = /^[A-Za-z0-9][A-Za-z0-9_-]{1,63}$/
 const PROJECT_WRITE_MAX_RETRIES = 5
 
 export type ActionResult = { success: true } | { success: false; error: string }
-type EntityStatus = 'active' | 'inactive'
 
-type ProjectFormValues = {
-  name: string
-  publicCode: string | null
-  timezone: string
-  googleFormUrlMorning: string | null
-  googleFormUrlEvening: string | null
-  reminderTimeMorning: string | null
-  reminderTimeEvening: string | null
-  whatsappTarget: string | null
-  status: EntityStatus
-}
-
-type DbError = {
-  code?: string
-  message: string
-}
-
-async function getAuthenticatedUserId(): Promise<
+export async function getAuthenticatedUserId(): Promise<
   { userId: string } | { error: string }
 > {
   const supabase = await createClient()
@@ -41,108 +26,7 @@ async function getAuthenticatedUserId(): Promise<
   return { userId: data.user.id }
 }
 
-function normalizePublicCode(input: string): string {
-  return input.trim().replace(/\s+/g, '-').toUpperCase()
-}
-
-function buildPublicCodeBase(projectName: string): string {
-  const normalized = projectName
-    .toUpperCase()
-    .replace(/[^A-Z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-
-  return normalized ? normalized.slice(0, 24) : 'PROJECT'
-}
-
-function generatePublicCode(projectName: string): string {
-  const suffix = crypto.randomUUID().replace(/-/g, '').slice(0, 8).toUpperCase()
-  return `${buildPublicCodeBase(projectName)}-${suffix}`
-}
-
-function isPublicCodeConflict(error: DbError | null): boolean {
-  return Boolean(
-    error?.code === '23505' &&
-    error.message.toLowerCase().includes('projects_public_code_unique'),
-  )
-}
-
-function parseProjectFormData(
-  formData: FormData,
-  options: { requireStatus: boolean },
-): { values: ProjectFormValues } | { error: string } {
-  const name = formData.get('name')?.toString().trim()
-  const rawPublicCode = formData.get('public_code')?.toString() ?? ''
-  const publicCode = rawPublicCode ? normalizePublicCode(rawPublicCode) : null
-  const timezone =
-    formData.get('timezone')?.toString().trim() || DEFAULT_PROJECT_TIMEZONE
-  const googleFormUrlMorning =
-    formData.get('google_form_url_morning')?.toString().trim() || null
-  const googleFormUrlEvening =
-    formData.get('google_form_url_evening')?.toString().trim() || null
-  const reminderTimeMorning =
-    formData.get('reminder_time_morning')?.toString().trim() || null
-  const reminderTimeEvening =
-    formData.get('reminder_time_evening')?.toString().trim() || null
-  const whatsappTarget =
-    formData.get('whatsapp_target')?.toString().trim() || null
-  const statusRaw = formData.get('status')?.toString().trim() || 'active'
-  const status: EntityStatus = statusRaw === 'inactive' ? 'inactive' : 'active'
-
-  if (!name) {
-    return { error: 'Project name is required.' }
-  }
-
-  if (
-    options.requireStatus &&
-    statusRaw !== 'active' &&
-    statusRaw !== 'inactive'
-  ) {
-    return { error: 'Project status must be active or inactive.' }
-  }
-
-  if (publicCode && !PROJECT_CODE_REGEX.test(publicCode)) {
-    return {
-      error:
-        'Project code must be 2-64 chars using letters, numbers, underscores, or hyphens.',
-    }
-  }
-
-  if (reminderTimeMorning && !HH_MM_REGEX.test(reminderTimeMorning)) {
-    return { error: 'Morning reminder must be in HH:mm format.' }
-  }
-
-  if (reminderTimeEvening && !HH_MM_REGEX.test(reminderTimeEvening)) {
-    return { error: 'Evening reminder must be in HH:mm format.' }
-  }
-
-  if (reminderTimeMorning && !googleFormUrlMorning) {
-    return {
-      error: 'Morning form URL is required when morning reminder is set.',
-    }
-  }
-
-  if (reminderTimeEvening && !googleFormUrlEvening) {
-    return {
-      error: 'Evening form URL is required when evening reminder is set.',
-    }
-  }
-
-  return {
-    values: {
-      name,
-      publicCode,
-      timezone,
-      googleFormUrlMorning,
-      googleFormUrlEvening,
-      reminderTimeMorning,
-      reminderTimeEvening,
-      whatsappTarget,
-      status,
-    },
-  }
-}
-
-async function saveProjectWithPublicCodeRetries({
+export async function saveProjectWithPublicCodeRetries({
   projectName,
   providedPublicCode,
   writeWithPublicCode,
@@ -168,59 +52,6 @@ async function saveProjectWithPublicCodeRetries({
   }
 
   return lastError
-}
-
-export async function createProjectAction(
-  _prev: ActionResult | null,
-  formData: FormData,
-): Promise<ActionResult> {
-  const auth = await getAuthenticatedUserId()
-  if ('error' in auth) {
-    return { success: false, error: auth.error }
-  }
-
-  const parsed = parseProjectFormData(formData, { requireStatus: false })
-  if ('error' in parsed) {
-    return { success: false, error: parsed.error }
-  }
-
-  const supabase = await createClient()
-  const writeError = await saveProjectWithPublicCodeRetries({
-    projectName: parsed.values.name,
-    providedPublicCode: parsed.values.publicCode,
-    writeWithPublicCode: async (publicCode) => {
-      const { error } = await supabase.from('projects').insert({
-        name: parsed.values.name,
-        public_code: publicCode,
-        timezone: parsed.values.timezone,
-        google_form_url_morning: parsed.values.googleFormUrlMorning,
-        google_form_url_evening: parsed.values.googleFormUrlEvening,
-        reminder_time_morning: parsed.values.reminderTimeMorning,
-        reminder_time_evening: parsed.values.reminderTimeEvening,
-        whatsapp_target: parsed.values.whatsappTarget,
-        status: parsed.values.status,
-        created_by: auth.userId,
-      })
-      return error
-    },
-  })
-
-  if (writeError && isPublicCodeConflict(writeError)) {
-    return {
-      success: false,
-      error: 'Project code already exists. Use a different code.',
-    }
-  }
-
-  if (writeError) {
-    return { success: false, error: writeError.message }
-  }
-
-  revalidatePath('/protected')
-  revalidatePath('/protected/projects')
-  revalidatePath('/protected/sites')
-  revalidatePath('/protected/logs')
-  return { success: true }
 }
 
 export async function createSiteAction(
