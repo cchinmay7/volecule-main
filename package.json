@@ -41,6 +41,7 @@
     "axios": "^1.16.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "exceljs": "^4.4.0",
     "geist": "^1.7.0",
     "lucide-react": "^0.562.0",
     "next": "^16.2.6",

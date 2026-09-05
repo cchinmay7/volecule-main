@@ -12,6 +12,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { ImportScheduleForm } from './import-schedule-form'
 
 type ProjectDetails = {
   id: string
@@ -281,6 +282,11 @@ export function ProjectDetailView({
             No sites are associated with this project yet.
           </p>
         )}
+      </section>
+
+      <section className="space-y-3 rounded-md border p-4">
+        <h2 className="text-base font-semibold">Schedule</h2>
+        <ImportScheduleForm projectId={project.id} />
       </section>
 
       <section className="space-y-3 rounded-md border p-4">
