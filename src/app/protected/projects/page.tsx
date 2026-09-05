@@ -13,7 +13,6 @@ import { cn } from '@/utils/tailwind'
 import { Suspense } from 'react'
 import { connection } from 'next/server'
 import { unstable_noStore as noStore } from 'next/cache'
-import { CreateProjectForm } from './create-project-form'
 
 type SiteRow = {
   id: string
@@ -74,87 +73,82 @@ async function ProjectsContent() {
   const hasSchemaError = Boolean(sitesError || projectsError)
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[380px_1fr]">
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Create project</CardTitle>
-          <CardDescription>
-            Configure form links, reminder times, and notification target.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {hasSchemaError ? (
-            <p className="text-muted-foreground text-sm">
-              Run the bootstrap SQL before adding projects.
-            </p>
-          ) : (
-            <CreateProjectForm />
-          )}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Projects</CardTitle>
-          <CardDescription>
-            Open a project to view details, edit configuration, or delete it.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          {hasSchemaError ? (
-            <p className="text-muted-foreground text-sm">
-              v1 schema tables are not available yet. Run the bootstrap SQL and
-              refresh this page.
-            </p>
-          ) : typedProjects.length > 0 ? (
-            typedProjects.map((project) => (
-              <div
-                key={project.id}
-                className="space-y-3 rounded-md border px-3 py-3 text-sm"
-              >
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div>
-                    <p className="font-medium">{project.name}</p>
-                    <p className="text-muted-foreground text-xs">
-                      Sites: {siteCountByProject[project.id] ?? 0}
-                    </p>
-                    <p className="text-muted-foreground text-xs">
-                      Code: {project.public_code ?? '--'} • Timezone:{' '}
-                      {project.timezone}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Badge variant="outline">
-                      {project.reminder_time_morning ?? '--'} /{' '}
-                      {project.reminder_time_evening ?? '--'}
-                    </Badge>
-                    <Badge
-                      variant={
-                        project.status === 'active' ? 'default' : 'secondary'
-                      }
-                    >
-                      {project.status}
-                    </Badge>
-                  </div>
+    <Card>
+      <CardHeader>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <CardTitle className="text-base">Projects</CardTitle>
+            <CardDescription>
+              Open a project to view details, edit configuration, or delete it.
+              New projects are created from the Start page, alongside their
+              Schedule Zero import.
+            </CardDescription>
+          </div>
+          <Link
+            href="/protected/start"
+            className={cn(buttonVariants({ size: 'sm' }))}
+          >
+            Start a new project
+          </Link>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {hasSchemaError ? (
+          <p className="text-muted-foreground text-sm">
+            v1 schema tables are not available yet. Run the bootstrap SQL and
+            refresh this page.
+          </p>
+        ) : typedProjects.length > 0 ? (
+          typedProjects.map((project) => (
+            <div
+              key={project.id}
+              className="space-y-3 rounded-md border px-3 py-3 text-sm"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="font-medium">{project.name}</p>
+                  <p className="text-muted-foreground text-xs">
+                    Sites: {siteCountByProject[project.id] ?? 0}
+                  </p>
+                  <p className="text-muted-foreground text-xs">
+                    Code: {project.public_code ?? '--'} • Timezone:{' '}
+                    {project.timezone}
+                  </p>
                 </div>
-                <Link
-                  href={`/protected/projects/${project.id}`}
-                  className={cn(
-                    buttonVariants({ variant: 'outline', size: 'sm' }),
-                  )}
-                >
-                  View details
-                </Link>
+                <div className="flex items-center gap-2">
+                  <Badge variant="outline">
+                    {project.reminder_time_morning ?? '--'} /{' '}
+                    {project.reminder_time_evening ?? '--'}
+                  </Badge>
+                  <Badge
+                    variant={
+                      project.status === 'active' ? 'default' : 'secondary'
+                    }
+                  >
+                    {project.status}
+                  </Badge>
+                </div>
               </div>
-            ))
-          ) : (
-            <p className="text-muted-foreground text-sm">
-              No projects yet. Create a project to start morning/evening
-              capture.
-            </p>
-          )}
-        </CardContent>
-      </Card>
-    </div>
+              <Link
+                href={`/protected/projects/${project.id}`}
+                className={cn(
+                  buttonVariants({ variant: 'outline', size: 'sm' }),
+                )}
+              >
+                View details
+              </Link>
+            </div>
+          ))
+        ) : (
+          <p className="text-muted-foreground text-sm">
+            No projects yet.{' '}
+            <Link href="/protected/start" className="underline">
+              Start one
+            </Link>{' '}
+            to create the first project and import its schedule.
+          </p>
+        )}
+      </CardContent>
+    </Card>
   )
 }
