@@ -117,6 +117,7 @@ export function SiteDetailView({
               disabled={!isEditing || updatePending || deletePending}
               className="border-input h-9 w-full rounded-md border bg-transparent px-3 text-sm disabled:cursor-not-allowed disabled:opacity-50"
             >
+              <option value="">— No project —</option>
               {projects.map((project) => (
                 <option key={project.id} value={project.id}>
                   {project.name}
