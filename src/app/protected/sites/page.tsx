@@ -72,7 +72,8 @@ async function SitesContent() {
         <CardHeader>
           <CardTitle className="text-base">Create site</CardTitle>
           <CardDescription>
-            Add a site and associate it with a project.
+            A site is created standalone — attach it to a project from the Start
+            page.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -81,12 +82,7 @@ async function SitesContent() {
               Run the bootstrap SQL before creating sites.
             </p>
           ) : (
-            <CreateSiteForm
-              projects={typedProjects.map((project) => ({
-                id: project.id,
-                name: project.name,
-              }))}
-            />
+            <CreateSiteForm />
           )}
         </CardContent>
       </Card>

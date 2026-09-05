@@ -60,12 +60,12 @@ export async function createSiteAction(
 ): Promise<ActionResult> {
   const name = formData.get('name')?.toString().trim()
   const clientName = formData.get('client_name')?.toString().trim()
-  const projectId = formData.get('project_id')?.toString().trim()
+  const projectId = formData.get('project_id')?.toString().trim() || null
 
-  if (!name || !clientName || !projectId) {
+  if (!name || !clientName) {
     return {
       success: false,
-      error: 'Site name, client name, and project are required.',
+      error: 'Site name and client name are required.',
     }
   }
 
@@ -76,14 +76,19 @@ export async function createSiteAction(
 
   const supabase = await createClient()
 
-  const { data: project, error: projectError } = await supabase
-    .from('projects')
-    .select('id')
-    .eq('id', projectId)
-    .maybeSingle()
+  // A site precedes a project — it's created standalone and only gets
+  // attached to a project later (normally via the Start page). A project
+  // is only looked up/validated here if one was actually provided.
+  if (projectId) {
+    const { data: project, error: projectError } = await supabase
+      .from('projects')
+      .select('id')
+      .eq('id', projectId)
+      .maybeSingle()
 
-  if (projectError || !project) {
-    return { success: false, error: 'Project not found.' }
+    if (projectError || !project) {
+      return { success: false, error: 'Project not found.' }
+    }
   }
 
   const { error } = await supabase.from('sites').insert({
@@ -99,7 +104,9 @@ export async function createSiteAction(
 
   revalidatePath('/protected')
   revalidatePath('/protected/projects')
-  revalidatePath(`/protected/projects/${projectId}`)
+  if (projectId) {
+    revalidatePath(`/protected/projects/${projectId}`)
+  }
   revalidatePath('/protected/sites')
   return { success: true }
 }
@@ -188,16 +195,15 @@ export async function updateSiteAction(
   }
 
   const siteId = formData.get('site_id')?.toString().trim()
-  const projectId = formData.get('project_id')?.toString().trim()
+  const projectId = formData.get('project_id')?.toString().trim() || null
   const name = formData.get('name')?.toString().trim()
   const clientName = formData.get('client_name')?.toString().trim()
   const statusRaw = formData.get('status')?.toString().trim()
 
-  if (!siteId || !projectId || !name || !clientName) {
+  if (!siteId || !name || !clientName) {
     return {
       success: false,
-      error:
-        'Site id, linked project, site name, and client name are required.',
+      error: 'Site id, site name, and client name are required.',
     }
   }
 
@@ -220,14 +226,18 @@ export async function updateSiteAction(
     return { success: false, error: 'Site not found.' }
   }
 
-  const { data: project, error: projectError } = await supabase
-    .from('projects')
-    .select('id')
-    .eq('id', projectId)
-    .maybeSingle()
+  // A project assignment is optional here too — a site can be edited before
+  // it's ever attached to a project.
+  if (projectId) {
+    const { data: project, error: projectError } = await supabase
+      .from('projects')
+      .select('id')
+      .eq('id', projectId)
+      .maybeSingle()
 
-  if (projectError || !project) {
-    return { success: false, error: 'Project not found.' }
+    if (projectError || !project) {
+      return { success: false, error: 'Project not found.' }
+    }
   }
 
   const { data, error } = await supabase
@@ -252,7 +262,9 @@ export async function updateSiteAction(
 
   revalidatePath('/protected')
   revalidatePath('/protected/projects')
-  revalidatePath(`/protected/projects/${projectId}`)
+  if (projectId) {
+    revalidatePath(`/protected/projects/${projectId}`)
+  }
   revalidatePath('/protected/sites')
   revalidatePath(`/protected/sites/${siteId}`)
   if (existingSite.project_id && existingSite.project_id !== projectId) {

@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 import { useActionState } from 'react'
 import { createSiteAction } from '@/app/protected/actions'
@@ -6,11 +6,8 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 
-type ProjectOption = { id: string; name: string }
-
-export function CreateSiteForm({ projects }: { projects: ProjectOption[] }) {
+export function CreateSiteForm() {
   const [state, formAction, pending] = useActionState(createSiteAction, null)
-  const hasProjectOptions = projects.length > 0
 
   return (
     <form action={formAction} className="space-y-4">
@@ -20,31 +17,6 @@ export function CreateSiteForm({ projects }: { projects: ProjectOption[] }) {
       {state?.success && (
         <p className="text-sm text-green-600">Site created successfully.</p>
       )}
-      <div className="space-y-2">
-        <Label htmlFor="project_id">Project</Label>
-        <select
-          id="project_id"
-          name="project_id"
-          required
-          disabled={!hasProjectOptions || pending}
-          className="border-input h-9 w-full rounded-md border bg-transparent px-3 text-sm"
-        >
-          {hasProjectOptions ? (
-            projects.map((project) => (
-              <option key={project.id} value={project.id}>
-                {project.name}
-              </option>
-            ))
-          ) : (
-            <option value="">No projects available</option>
-          )}
-        </select>
-        {!hasProjectOptions && (
-          <p className="text-muted-foreground text-xs">
-            Create a project first in the Projects tab to enable site creation.
-          </p>
-        )}
-      </div>
       <div className="space-y-2">
         <Label htmlFor="name">Site name</Label>
         <Input id="name" name="name" placeholder="Shivalik Floors" required />
@@ -58,11 +30,11 @@ export function CreateSiteForm({ projects }: { projects: ProjectOption[] }) {
           required
         />
       </div>
-      <Button
-        type="submit"
-        className="w-full"
-        disabled={pending || !hasProjectOptions}
-      >
+      <p className="text-muted-foreground text-xs">
+        A site is created standalone. Attach it to a project later from the
+        Start page.
+      </p>
+      <Button type="submit" className="w-full" disabled={pending}>
         {pending ? 'Creating…' : 'Create site'}
       </Button>
     </form>

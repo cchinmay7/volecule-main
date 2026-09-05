@@ -117,13 +117,14 @@ function InitializeNewProjectForm({ sites }: { sites: SiteOption[] }) {
               ))}
             </>
           ) : (
-            <option value="">No sites available</option>
+            <option value="">No unassigned sites available</option>
           )}
         </select>
         {!hasSites && (
           <p className="text-muted-foreground text-xs">
-            Create a site first in the Sites tab — a project can only be
-            initialized against an existing site.
+            Create a site first in the Sites tab, or every existing site is
+            already attached to a project — a new project can only be
+            initialized against a site that isn&apos;t attached to one yet.
           </p>
         )}
       </div>

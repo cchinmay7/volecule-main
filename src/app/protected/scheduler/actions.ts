@@ -174,12 +174,23 @@ export async function initializeProjectWithScheduleAction(
 
   const { data: site, error: siteError } = await supabase
     .from('sites')
-    .select('id')
+    .select('id, project_id')
     .eq('id', siteId)
     .maybeSingle()
 
   if (siteError || !site) {
     return { success: false, error: 'Site not found.' }
+  }
+
+  // Defensive re-check — the dropdown only lists unassigned sites, but a
+  // second initialize could have claimed this one in between page load and
+  // this submit. Never silently steal a site from another project.
+  if (site.project_id) {
+    return {
+      success: false,
+      error:
+        'This site is already attached to another project. Refresh and pick a different one.',
+    }
   }
 
   let createdProjectId: string | null = null
