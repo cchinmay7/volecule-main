@@ -8,11 +8,11 @@ import { unstable_noStore as noStore } from 'next/cache'
 type SiteRow = {
   id: string
   name: string
-  project_id: string | null
 }
 
 type ProjectRow = {
   id: string
+  site_id: string | null
   name: string
   timezone: string
 }
@@ -42,20 +42,15 @@ async function ProtectedDashboardContent() {
   ] = await Promise.all([
     supabase
       .from('projects')
-      .select('id, name, timezone')
+      .select('id, site_id, name, timezone')
       .order('created_at', { ascending: false }),
-    supabase.from('sites').select('id, name, project_id'),
+    supabase.from('sites').select('id, name'),
   ])
 
   const schemaNotReady = Boolean(projectsError || sitesError)
   const typedSites = (sitesData ?? []) as SiteRow[]
-  const siteNamesByProjectId = typedSites.reduce<Record<string, string[]>>(
-    (acc, site) => {
-      if (!site.project_id) return acc
-      acc[site.project_id] = [...(acc[site.project_id] ?? []), site.name]
-      return acc
-    },
-    {},
+  const siteNameById = Object.fromEntries(
+    typedSites.map((site) => [site.id, site.name]),
   )
   const typedProjects = (projectsData ?? []) as ProjectRow[]
 
@@ -68,7 +63,7 @@ async function ProtectedDashboardContent() {
       ] = await Promise.all([
         supabase
           .from('project_logs')
-          .select('shift')
+          .select('shift, escalate_to_volecule')
           .eq('project_id', project.id)
           .eq('log_date', localDate),
         supabase
@@ -87,14 +82,20 @@ async function ProtectedDashboardContent() {
       const hasEvening = Boolean(
         dayLogs?.some((log) => log.shift === 'evening'),
       )
+      const isEscalatedToday = Boolean(
+        dayLogs?.some((log) => log.escalate_to_volecule),
+      )
 
       return {
         projectId: project.id,
         projectName: project.name,
-        siteNames: siteNamesByProjectId[project.id] ?? [],
+        siteName: project.site_id
+          ? (siteNameById[project.site_id] ?? null)
+          : null,
         localDate,
         hasMorning,
         hasEvening,
+        isEscalatedToday,
         lastSubmittedAt: lastLog?.[0]?.created_at ?? null,
         hasQueryError,
       }
@@ -145,10 +146,7 @@ async function ProtectedDashboardContent() {
                     <div>
                       <p className="font-medium">{project.projectName}</p>
                       <p className="text-muted-foreground text-xs">
-                        Sites:{' '}
-                        {project.siteNames.length > 0
-                          ? project.siteNames.join(', ')
-                          : '--'}
+                        Site: {project.siteName ?? '--'}
                       </p>
                     </div>
                     <span className="text-muted-foreground text-xs">
@@ -156,6 +154,9 @@ async function ProtectedDashboardContent() {
                     </span>
                   </div>
                   <div className="mt-2 flex flex-wrap items-center gap-2">
+                    {project.isEscalatedToday && (
+                      <Badge variant="destructive">Escalated</Badge>
+                    )}
                     <Badge
                       variant={project.hasMorning ? 'default' : 'destructive'}
                     >

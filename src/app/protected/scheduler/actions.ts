@@ -13,9 +13,14 @@ import {
 } from '@/app/protected/project-form'
 import { parseScheduleWorkbook } from '@/utils/scheduler/parse-excel'
 import { importSchedule } from '@/utils/scheduler/import-schedule'
+import { ingestFormSubmission } from '@/utils/scheduler/ingest-submission'
 import type { ParseResult } from '@/utils/scheduler/types'
 
 export type ImportScheduleResult =
+  | { success: true; message: string }
+  | { success: false; error: string }
+
+export type SubmitTestLogResult =
   | { success: true; message: string }
   | { success: false; error: string }
 
@@ -132,11 +137,13 @@ export async function importScheduleAction(
 }
 
 /**
- * Creates a brand-new project, attaches it to an already-existing site
- * (site.project_id), and imports its Schedule Zero — all in one submit.
- * This is now the only way to create a project; the plain "create project"
- * flow (no schedule) has been retired in favor of this combined entry
- * point.
+ * Creates a brand-new project under an already-existing site
+ * (projects.site_id) and imports its Schedule Zero — all in one submit.
+ * A site precedes its projects and can have several, so this never
+ * "claims" or reassigns the site — it only ever adds a new project under
+ * it. This is now the only way to create a project; the plain "create
+ * project" flow (no schedule) has been retired in favor of this combined
+ * entry point.
  */
 export async function initializeProjectWithScheduleAction(
   _prev: InitializeProjectResult | null,
@@ -174,23 +181,12 @@ export async function initializeProjectWithScheduleAction(
 
   const { data: site, error: siteError } = await supabase
     .from('sites')
-    .select('id, project_id')
+    .select('id')
     .eq('id', siteId)
     .maybeSingle()
 
   if (siteError || !site) {
     return { success: false, error: 'Site not found.' }
-  }
-
-  // Defensive re-check — the dropdown only lists unassigned sites, but a
-  // second initialize could have claimed this one in between page load and
-  // this submit. Never silently steal a site from another project.
-  if (site.project_id) {
-    return {
-      success: false,
-      error:
-        'This site is already attached to another project. Refresh and pick a different one.',
-    }
   }
 
   let createdProjectId: string | null = null
@@ -202,6 +198,7 @@ export async function initializeProjectWithScheduleAction(
       const { data, error } = await supabase
         .from('projects')
         .insert({
+          site_id: siteId,
           name: parsed.values.name,
           public_code: publicCode,
           timezone: parsed.values.timezone,
@@ -238,18 +235,6 @@ export async function initializeProjectWithScheduleAction(
 
   const projectId: string = createdProjectId
 
-  const { error: attachError } = await supabase
-    .from('sites')
-    .update({ project_id: projectId })
-    .eq('id', siteId)
-
-  if (attachError) {
-    return {
-      success: false,
-      error: `Project "${parsed.values.name}" was created, but attaching the site failed: ${attachError.message}. The project exists without a schedule — fix the attachment and re-import from its detail page.`,
-    }
-  }
-
   const admin = createAdminClient()
 
   const outcome = await importSchedule({
@@ -285,5 +270,80 @@ export async function initializeProjectWithScheduleAction(
     success: true,
     projectId,
     message: `Project "${parsed.values.name}" created and schedule imported (version ${outcome.versionNumber}): ${outcome.created} tasks.${warningNote(parseResult)}`,
+  }
+}
+
+/**
+ * Date-override testing console (spec §11 item 2) — exercises the exact
+ * same ingestion + propagation code path a real evening Google Forms
+ * submission takes (src/utils/scheduler/ingest-submission.ts), but with
+ * an operator-chosen fake date instead of waiting for real time to pass.
+ * A visibly separate, clearly-labelled entry point — not folded into the
+ * normal operator workflow.
+ */
+export async function submitTestLogAction(
+  _prev: SubmitTestLogResult | null,
+  formData: FormData,
+): Promise<SubmitTestLogResult> {
+  const auth = await getAuthenticatedUserId()
+  if ('error' in auth) {
+    return { success: false, error: auth.error }
+  }
+
+  const projectId = formData.get('project_id')?.toString().trim()
+  if (!projectId) {
+    return { success: false, error: 'Project is required.' }
+  }
+
+  const shift = formData.get('shift')?.toString()
+  if (shift !== 'morning' && shift !== 'evening') {
+    return { success: false, error: 'Shift must be "morning" or "evening".' }
+  }
+
+  const fakeDate = formData.get('fake_date')?.toString().trim()
+  if (!fakeDate || !/^\d{4}-\d{2}-\d{2}$/.test(fakeDate)) {
+    return { success: false, error: 'A valid date (YYYY-MM-DD) is required.' }
+  }
+
+  const achievedRefs = formData
+    .getAll('achieved_task_ref')
+    .map((v) => v.toString())
+
+  const admin = createAdminClient()
+
+  const externalSubmissionId = `test-console-${Date.now()}-${Math.random()
+    .toString(36)
+    .slice(2, 8)}`
+
+  const result = await ingestFormSubmission(admin, {
+    projectId,
+    projectCode: '',
+    shift,
+    externalSubmissionId,
+    // Anchored at noon UTC so the timezone conversion in
+    // toLocalDateString can't roll it onto the adjacent calendar day.
+    submittedAt: `${fakeDate}T12:00:00.000Z`,
+    formValues: {
+      targets_achieved: achievedRefs,
+      free_notes: 'Submitted via the date-override testing console.',
+    },
+    sourcePayload: {
+      test_console: true,
+      fake_date: fakeDate,
+      achieved_task_refs: achievedRefs,
+    },
+    source: 'manual',
+  })
+
+  if (!result.ok) {
+    return { success: false, error: result.error }
+  }
+
+  revalidatePath(`/protected/projects/${projectId}/scheduler`)
+  revalidatePath('/protected/scheduler/test')
+
+  return {
+    success: true,
+    message: `Simulated ${shift} submission for ${fakeDate} (log_date resolved to ${result.logDate}). Refresh the project's scheduler view to see the effect.`,
   }
 }

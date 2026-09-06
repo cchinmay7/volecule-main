@@ -1,10 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/supabase/admin'
-import { normalizeTaskId } from '@/utils/scheduler/task-id'
-import {
-  applyMissedTargets,
-  applyTaskCompletions,
-} from '@/utils/scheduler/propagate'
+import { ingestFormSubmission } from '@/utils/scheduler/ingest-submission'
 
 /**
  * POST /api/integrations/google-forms/submit
@@ -25,10 +21,16 @@ import {
  *   site_id, site_code
  *
  * Optional body fields (under form_values):
- *   headcount          — object/array
- *   targets_selected   — object/array
- *   targets_achieved   — object/array
- *   free_notes         — string
+ *   headcount             — object/array
+ *   targets_selected      — object/array
+ *   targets_achieved      — object/array
+ *   free_notes            — string
+ *   escalate_to_volecule  — boolean, or a "yes"/"true"/"escalate" string
+ *
+ * The actual log-upsert + schedule-propagation logic lives in
+ * src/utils/scheduler/ingest-submission.ts, shared with the date-override
+ * testing console (spec §11 item 2) so both go through the exact same
+ * code path.
  */
 export async function POST(req: NextRequest) {
   // 1. Shared secret check
@@ -108,196 +110,25 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  const submittedDate = new Date(submitted_at)
-  if (isNaN(submittedDate.getTime())) {
-    return NextResponse.json(
-      { error: 'submitted_at is not a valid ISO 8601 timestamp' },
-      { status: 400 },
-    )
-  }
-
-  // 4. Look up project and resolve log_date using project timezone
   const supabase = createAdminClient()
 
-  const query = supabase
-    .from('projects')
-    .select('id, public_code, status, timezone')
-  const { data: project, error: projectError } = projectId
-    ? await query.eq('id', projectId).single()
-    : await query.eq('public_code', projectCode).single()
+  const result = await ingestFormSubmission(supabase, {
+    projectId,
+    projectCode,
+    shift,
+    externalSubmissionId: external_submission_id,
+    submittedAt: submitted_at,
+    formValues: (form_values ?? {}) as Record<string, unknown>,
+    sourcePayload: body,
+    source: 'google_form',
+  })
 
-  if (projectError || !project) {
-    const idType = projectId ? 'project_id' : 'project_code'
-    return NextResponse.json({ error: `Unknown ${idType}` }, { status: 400 })
-  }
-
-  if (projectId && projectCode && project.public_code !== projectCode) {
-    return NextResponse.json(
-      {
-        error: 'project_id and project_code do not match the same project',
-      },
-      { status: 400 },
-    )
-  }
-
-  if (project.status !== 'active') {
-    return NextResponse.json(
-      { error: 'Project is not active — submissions rejected' },
-      { status: 400 },
-    )
-  }
-
-  // Derive log_date in the project's local timezone
-  const logDate = toLocalDateString(submittedDate, project.timezone)
-
-  // 5. Map payload fields
-  const fv = (form_values ?? {}) as Record<string, unknown>
-  const headcountJson = fv.headcount ?? null
-  const targetsSelectedJson = fv.targets_selected ?? null
-  const targetsAchievedJson = fv.targets_achieved ?? null
-  const freeNotes = typeof fv.free_notes === 'string' ? fv.free_notes : null
-
-  // 6. Upsert — idempotent on (project_id, log_date, shift)
-  const { data: upsertedLog, error: upsertError } = await supabase
-    .from('project_logs')
-    .upsert(
-      {
-        project_id: project.id,
-        log_date: logDate,
-        shift,
-        headcount_json: headcountJson,
-        targets_selected_json: targetsSelectedJson,
-        targets_achieved_json: targetsAchievedJson,
-        free_notes: freeNotes,
-        source: 'google_form',
-        external_submission_id,
-        source_payload_json: body,
-      },
-      {
-        onConflict: 'project_id,log_date,shift',
-        ignoreDuplicates: false,
-      },
-    )
-    .select('id')
-    .single()
-
-  if (upsertError) {
-    console.error('[ingestion] upsert error', upsertError)
-    return NextResponse.json({ error: 'Failed to save log' }, { status: 500 })
-  }
-
-  // 7. Trigger schedule propagation for evening submissions.
-  // A project with no imported schedule yet simply has no candidate tasks
-  // below, so this is a no-op for it rather than needing its own check.
-  if (shift === 'evening') {
-    try {
-      const achievedIds = new Set<string>()
-      if (Array.isArray(targetsAchievedJson)) {
-        for (const label of targetsAchievedJson) {
-          if (typeof label !== 'string') continue
-          const normalized = normalizeTaskId(label)
-          if (normalized) achievedIds.add(normalized)
-        }
-      }
-
-      const { data: candidateTasks, error: tasksError } = await supabase
-        .from('schedule_tasks')
-        .select('id, external_ref, current_planned_end')
-        .eq('project_id', project.id)
-        .in('status', ['pending', 'missed'])
-
-      if (tasksError) {
-        console.error('[ingestion] task query error', tasksError)
-      } else if (candidateTasks && candidateTasks.length > 0) {
-        const completions: { taskId: string; actualEnd: string }[] = []
-        const missed: string[] = []
-
-        for (const task of candidateTasks) {
-          const externalRef = task.external_ref as string | null
-          const normalized = externalRef ? normalizeTaskId(externalRef) : null
-          const plannedEnd = task.current_planned_end as string
-
-          if (normalized && achievedIds.has(normalized)) {
-            completions.push({ taskId: task.id as string, actualEnd: logDate })
-          } else if (plannedEnd <= logDate) {
-            missed.push(task.id as string)
-          }
-          // else: not due yet — leave untouched
-        }
-
-        if (completions.length > 0) {
-          const outcome = await applyTaskCompletions({
-            supabase,
-            projectId: project.id,
-            completions,
-            today: logDate,
-          })
-          if (outcome.success) {
-            console.info('[ingestion] completions applied', {
-              count: completions.length,
-              tasksChanged: outcome.tasksChanged,
-              versionNumber: outcome.versionNumber,
-            })
-          } else {
-            console.error('[ingestion] completions failed', outcome.error)
-          }
-        }
-
-        if (missed.length > 0) {
-          const outcome = await applyMissedTargets({
-            supabase,
-            projectId: project.id,
-            missedTaskIds: missed,
-            triggerProjectLogId: upsertedLog?.id ?? null,
-            missReason: freeNotes,
-          })
-          if (outcome.success) {
-            console.info('[ingestion] missed targets applied', {
-              count: missed.length,
-              tasksChanged: outcome.tasksChanged,
-              versionNumber: outcome.versionNumber,
-            })
-          } else {
-            console.error('[ingestion] missed targets failed', outcome.error)
-          }
-        }
-      }
-    } catch (propagationError) {
-      console.error('[ingestion] schedule propagation error', propagationError)
-      // Never fail log ingestion because of a propagation error.
-    }
+  if (!result.ok) {
+    return NextResponse.json({ error: result.error }, { status: result.status })
   }
 
   return NextResponse.json(
-    { ok: true, log_date: logDate, shift },
+    { ok: true, log_date: result.logDate, shift: result.shift },
     { status: 200 },
   )
-}
-
-/**
- * Convert a UTC Date to a YYYY-MM-DD string in the target IANA timezone.
- * Falls back to UTC if the timezone is invalid.
- */
-function toLocalDateString(date: Date, timezone: string): string {
-  try {
-    const parts = new Intl.DateTimeFormat('en-CA', {
-      timeZone: timezone,
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-    }).formatToParts(date)
-
-    const year = parts.find((p) => p.type === 'year')?.value
-    const month = parts.find((p) => p.type === 'month')?.value
-    const day = parts.find((p) => p.type === 'day')?.value
-
-    if (year && month && day) return `${year}-${month}-${day}`
-  } catch {
-    console.warn(
-      '[ingestion] Invalid timezone',
-      timezone,
-      '— falling back to UTC',
-    )
-  }
-  return date.toISOString().slice(0, 10)
 }

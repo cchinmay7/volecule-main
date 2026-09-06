@@ -11,7 +11,6 @@ import { Label } from '@/components/ui/label'
 
 type SiteDetails = {
   id: string
-  project_id: string | null
   name: string
   client_name: string
   status: string
@@ -60,17 +59,13 @@ export function SiteDetailView({
     null,
   )
 
-  const selectedProject = site.project_id
-    ? (projects.find((project) => project.id === site.project_id) ?? null)
-    : null
-
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold">{site.name}</h1>
           <p className="text-muted-foreground text-sm">
-            Site details and assigned project.
+            Site details and its projects.
           </p>
         </div>
         <Button
@@ -107,24 +102,7 @@ export function SiteDetailView({
             />
           </div>
         </div>
-        <div className="grid gap-4 md:grid-cols-3">
-          <div className="space-y-2">
-            <Label htmlFor="site_project_id">Project</Label>
-            <select
-              id="site_project_id"
-              name="project_id"
-              defaultValue={site.project_id ?? ''}
-              disabled={!isEditing || updatePending || deletePending}
-              className="border-input h-9 w-full rounded-md border bg-transparent px-3 text-sm disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <option value="">— No project —</option>
-              {projects.map((project) => (
-                <option key={project.id} value={project.id}>
-                  {project.name}
-                </option>
-              ))}
-            </select>
-          </div>
+        <div className="grid gap-4 md:grid-cols-2">
           <div className="space-y-2">
             <Label htmlFor="site_status">Site status</Label>
             <select
@@ -162,33 +140,43 @@ export function SiteDetailView({
 
       <section className="space-y-3 rounded-md border p-4">
         <div className="flex items-center justify-between">
-          <h2 className="text-base font-semibold">Assigned project</h2>
-          {selectedProject && (
-            <Badge
-              variant={
-                selectedProject.status === 'active' ? 'default' : 'secondary'
-              }
-            >
-              {selectedProject.status}
-            </Badge>
-          )}
+          <h2 className="text-base font-semibold">Projects at this site</h2>
+          <Badge variant="outline">{projects.length} projects</Badge>
         </div>
-        {selectedProject ? (
-          <div className="space-y-2 text-sm">
-            <p className="font-medium">{selectedProject.name}</p>
-            <p className="text-muted-foreground text-xs">
-              Code: {selectedProject.public_code ?? '--'} • Timezone:{' '}
-              {selectedProject.timezone}
-            </p>
-            <Link href={`/protected/projects/${selectedProject.id}`}>
-              <Button type="button" variant="outline" size="sm">
-                View project details
-              </Button>
-            </Link>
+        {projects.length > 0 ? (
+          <div className="space-y-2">
+            {projects.map((project) => (
+              <div
+                key={project.id}
+                className="flex flex-wrap items-center justify-between gap-3 rounded-md border px-3 py-3 text-sm"
+              >
+                <div>
+                  <p className="font-medium">{project.name}</p>
+                  <p className="text-muted-foreground text-xs">
+                    Code: {project.public_code ?? '--'} • Timezone:{' '}
+                    {project.timezone}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Badge
+                    variant={
+                      project.status === 'active' ? 'default' : 'secondary'
+                    }
+                  >
+                    {project.status}
+                  </Badge>
+                  <Link href={`/protected/projects/${project.id}`}>
+                    <Button type="button" variant="outline" size="sm">
+                      View project details
+                    </Button>
+                  </Link>
+                </div>
+              </div>
+            ))}
           </div>
         ) : (
           <p className="text-muted-foreground text-sm">
-            No project is assigned to this site.
+            No projects have been initialized against this site yet.
           </p>
         )}
       </section>
@@ -197,7 +185,13 @@ export function SiteDetailView({
         action={deleteAction}
         className="space-y-2 border-t pt-6"
         onSubmit={(event) => {
-          if (!window.confirm('Delete this site permanently?')) {
+          if (
+            !window.confirm(
+              projects.length > 0
+                ? `Delete this site and all ${projects.length} project(s) under it — including their schedules and logs — permanently?`
+                : 'Delete this site permanently?',
+            )
+          ) {
             event.preventDefault()
           }
         }}

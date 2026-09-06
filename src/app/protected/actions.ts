@@ -60,7 +60,6 @@ export async function createSiteAction(
 ): Promise<ActionResult> {
   const name = formData.get('name')?.toString().trim()
   const clientName = formData.get('client_name')?.toString().trim()
-  const projectId = formData.get('project_id')?.toString().trim() || null
 
   if (!name || !clientName) {
     return {
@@ -76,23 +75,10 @@ export async function createSiteAction(
 
   const supabase = await createClient()
 
-  // A site precedes a project — it's created standalone and only gets
-  // attached to a project later (normally via the Start page). A project
-  // is only looked up/validated here if one was actually provided.
-  if (projectId) {
-    const { data: project, error: projectError } = await supabase
-      .from('projects')
-      .select('id')
-      .eq('id', projectId)
-      .maybeSingle()
-
-    if (projectError || !project) {
-      return { success: false, error: 'Project not found.' }
-    }
-  }
-
+  // A site precedes any project — it's a standalone top-level entity.
+  // Projects are created under it later (from the Start page), and any
+  // number of them can be.
   const { error } = await supabase.from('sites').insert({
-    project_id: projectId,
     name,
     client_name: clientName,
     created_by: auth.userId,
@@ -104,10 +90,8 @@ export async function createSiteAction(
 
   revalidatePath('/protected')
   revalidatePath('/protected/projects')
-  if (projectId) {
-    revalidatePath(`/protected/projects/${projectId}`)
-  }
   revalidatePath('/protected/sites')
+  revalidatePath('/protected/start')
   return { success: true }
 }
 
@@ -125,6 +109,8 @@ export async function updateProjectAction(
     return { success: false, error: 'Project id is required.' }
   }
 
+  const siteId = formData.get('site_id')?.toString().trim() || null
+
   const parsed = parseProjectFormData(formData, { requireStatus: true })
   if ('error' in parsed) {
     return { success: false, error: parsed.error }
@@ -133,12 +119,24 @@ export async function updateProjectAction(
   const supabase = await createClient()
   const { data: existingProject, error: existingProjectError } = await supabase
     .from('projects')
-    .select('id')
+    .select('id, site_id')
     .eq('id', projectId)
     .maybeSingle()
 
   if (existingProjectError || !existingProject) {
     return { success: false, error: 'Project not found.' }
+  }
+
+  if (siteId) {
+    const { data: site, error: siteError } = await supabase
+      .from('sites')
+      .select('id')
+      .eq('id', siteId)
+      .maybeSingle()
+
+    if (siteError || !site) {
+      return { success: false, error: 'Site not found.' }
+    }
   }
 
   const writeError = await saveProjectWithPublicCodeRetries({
@@ -148,6 +146,7 @@ export async function updateProjectAction(
       const { error } = await supabase
         .from('projects')
         .update({
+          site_id: siteId,
           name: parsed.values.name,
           public_code: publicCode,
           timezone: parsed.values.timezone,
@@ -181,6 +180,12 @@ export async function updateProjectAction(
   revalidatePath('/protected/projects')
   revalidatePath(`/protected/projects/${projectId}`)
   revalidatePath('/protected/sites')
+  if (existingProject.site_id) {
+    revalidatePath(`/protected/sites/${existingProject.site_id}`)
+  }
+  if (siteId && siteId !== existingProject.site_id) {
+    revalidatePath(`/protected/sites/${siteId}`)
+  }
   revalidatePath('/protected/logs')
   return { success: true }
 }
@@ -195,7 +200,6 @@ export async function updateSiteAction(
   }
 
   const siteId = formData.get('site_id')?.toString().trim()
-  const projectId = formData.get('project_id')?.toString().trim() || null
   const name = formData.get('name')?.toString().trim()
   const clientName = formData.get('client_name')?.toString().trim()
   const statusRaw = formData.get('status')?.toString().trim()
@@ -218,7 +222,7 @@ export async function updateSiteAction(
 
   const { data: existingSite, error: existingSiteError } = await supabase
     .from('sites')
-    .select('id, project_id')
+    .select('id')
     .eq('id', siteId)
     .maybeSingle()
 
@@ -226,24 +230,9 @@ export async function updateSiteAction(
     return { success: false, error: 'Site not found.' }
   }
 
-  // A project assignment is optional here too — a site can be edited before
-  // it's ever attached to a project.
-  if (projectId) {
-    const { data: project, error: projectError } = await supabase
-      .from('projects')
-      .select('id')
-      .eq('id', projectId)
-      .maybeSingle()
-
-    if (projectError || !project) {
-      return { success: false, error: 'Project not found.' }
-    }
-  }
-
   const { data, error } = await supabase
     .from('sites')
     .update({
-      project_id: projectId,
       name,
       client_name: clientName,
       status: statusRaw,
@@ -262,14 +251,8 @@ export async function updateSiteAction(
 
   revalidatePath('/protected')
   revalidatePath('/protected/projects')
-  if (projectId) {
-    revalidatePath(`/protected/projects/${projectId}`)
-  }
   revalidatePath('/protected/sites')
   revalidatePath(`/protected/sites/${siteId}`)
-  if (existingSite.project_id && existingSite.project_id !== projectId) {
-    revalidatePath(`/protected/projects/${existingSite.project_id}`)
-  }
   revalidatePath('/protected/logs')
   return { success: true }
 }
@@ -368,7 +351,7 @@ export async function deleteProjectAction(
   const supabase = await createClient()
   const { data: existingProject, error: existingProjectError } = await supabase
     .from('projects')
-    .select('id')
+    .select('id, site_id')
     .eq('id', projectId)
     .maybeSingle()
 
@@ -376,6 +359,9 @@ export async function deleteProjectAction(
     return { success: false, error: 'Project not found.' }
   }
 
+  // Deleting a project never touches its site (or any sibling projects
+  // under it) — a site precedes its projects, not the other way round,
+  // so it always outlives them.
   const { data: deletedProject, error } = await supabase
     .from('projects')
     .delete()
@@ -398,6 +384,9 @@ export async function deleteProjectAction(
   revalidatePath('/protected/projects')
   revalidatePath(`/protected/projects/${projectId}`)
   revalidatePath('/protected/sites')
+  if (existingProject.site_id) {
+    revalidatePath(`/protected/sites/${existingProject.site_id}`)
+  }
   revalidatePath('/protected/logs')
   return { success: true }
 }
@@ -420,7 +409,7 @@ export async function deleteSiteAction(
 
   const { data: existingSite, error: existingSiteError } = await supabase
     .from('sites')
-    .select('id, project_id')
+    .select('id')
     .eq('id', siteId)
     .maybeSingle()
 
@@ -428,6 +417,11 @@ export async function deleteSiteAction(
     return { success: false, error: 'Site not found.' }
   }
 
+  // A site precedes its projects (one site, many projects). Deleting it
+  // deletes every project under it via projects.site_id's real
+  // on-delete-cascade FK — and, transitively, each of those projects' own
+  // schedule_tasks/project_logs/etc. — no application-level fan-out
+  // needed here.
   const { data: deletedSite, error } = await supabase
     .from('sites')
     .delete()
@@ -448,9 +442,6 @@ export async function deleteSiteAction(
 
   revalidatePath('/protected')
   revalidatePath('/protected/projects')
-  if (existingSite.project_id) {
-    revalidatePath(`/protected/projects/${existingSite.project_id}`)
-  }
   revalidatePath('/protected/sites')
   revalidatePath(`/protected/sites/${siteId}`)
   revalidatePath('/protected/logs')

@@ -16,6 +16,7 @@ import { ImportScheduleForm } from '@/app/protected/scheduler/import-schedule-fo
 
 type ProjectDetails = {
   id: string
+  site_id: string | null
   name: string
   public_code: string | null
   timezone: string
@@ -42,10 +43,12 @@ function toTimeInputValue(value: string | null): string {
 
 export function ProjectDetailView({
   project,
-  sites,
+  site,
+  allSites,
 }: {
   project: ProjectDetails
-  sites: AssociatedSite[]
+  site: AssociatedSite | null
+  allSites: AssociatedSite[]
 }) {
   const [isEditing, setIsEditing] = useState(false)
   const router = useRouter()
@@ -104,7 +107,7 @@ export function ProjectDetailView({
         <div>
           <h1 className="text-2xl font-semibold">{project.name}</h1>
           <p className="text-muted-foreground text-sm">
-            Project details and associated sites.
+            Project details and its site.
           </p>
         </div>
         <Button
@@ -143,7 +146,24 @@ export function ProjectDetailView({
           </div>
         </div>
 
-        <div className="grid gap-4 md:grid-cols-2">
+        <div className="grid gap-4 md:grid-cols-3">
+          <div className="space-y-2">
+            <Label htmlFor="project_site_id">Site</Label>
+            <select
+              id="project_site_id"
+              name="site_id"
+              defaultValue={project.site_id ?? ''}
+              disabled={!isEditing || updatePending || deletePending}
+              className="border-input h-9 w-full rounded-md border bg-transparent px-3 text-sm disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <option value="">— No site —</option>
+              {allSites.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name} ({s.client_name})
+                </option>
+              ))}
+            </select>
+          </div>
           <div className="space-y-2">
             <Label htmlFor="project_status">Project status</Label>
             <select
@@ -246,40 +266,30 @@ export function ProjectDetailView({
 
       <section className="space-y-3 rounded-md border p-4">
         <div className="flex items-center justify-between">
-          <h2 className="text-base font-semibold">Associated sites</h2>
-          <Badge variant="outline">{sites.length} sites</Badge>
+          <h2 className="text-base font-semibold">Site</h2>
+          {site && (
+            <Badge variant={site.status === 'active' ? 'default' : 'secondary'}>
+              {site.status}
+            </Badge>
+          )}
         </div>
-        {sites.length > 0 ? (
-          <div className="space-y-3">
-            {sites.map((site) => (
-              <div
-                key={site.id}
-                className="flex flex-wrap items-center justify-between gap-3 rounded-md border px-3 py-3 text-sm"
-              >
-                <div>
-                  <p className="font-medium">{site.name}</p>
-                  <p className="text-muted-foreground text-xs">
-                    Client: {site.client_name}
-                  </p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Badge
-                    variant={site.status === 'active' ? 'default' : 'secondary'}
-                  >
-                    {site.status}
-                  </Badge>
-                  <Link href={`/protected/sites/${site.id}`}>
-                    <Button type="button" variant="outline" size="sm">
-                      View details
-                    </Button>
-                  </Link>
-                </div>
-              </div>
-            ))}
+        {site ? (
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border px-3 py-3 text-sm">
+            <div>
+              <p className="font-medium">{site.name}</p>
+              <p className="text-muted-foreground text-xs">
+                Client: {site.client_name}
+              </p>
+            </div>
+            <Link href={`/protected/sites/${site.id}`}>
+              <Button type="button" variant="outline" size="sm">
+                View site details
+              </Button>
+            </Link>
           </div>
         ) : (
           <p className="text-muted-foreground text-sm">
-            No sites are associated with this project yet.
+            No site is assigned to this project.
           </p>
         )}
       </section>
