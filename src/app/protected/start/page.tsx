@@ -41,11 +41,7 @@ async function StartContent() {
     { data: sites, error: sitesError },
     { data: projects, error: projectsError },
   ] = await Promise.all([
-    supabase
-      .from('sites')
-      .select('id, name, client_name')
-      .is('project_id', null)
-      .order('name'),
+    supabase.from('sites').select('id, name, client_name').order('name'),
     supabase.from('projects').select('id, name').order('name'),
   ])
 

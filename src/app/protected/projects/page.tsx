@@ -16,11 +16,12 @@ import { unstable_noStore as noStore } from 'next/cache'
 
 type SiteRow = {
   id: string
-  project_id: string | null
+  name: string
 }
 
 type ProjectRow = {
   id: string
+  site_id: string | null
   name: string
   public_code: string | null
   timezone: string
@@ -50,25 +51,19 @@ async function ProjectsContent() {
     { data: sites, error: sitesError },
     { data: projects, error: projectsError },
   ] = await Promise.all([
-    supabase.from('sites').select('id, project_id'),
+    supabase.from('sites').select('id, name'),
     supabase
       .from('projects')
       .select(
-        'id, name, public_code, timezone, reminder_time_morning, reminder_time_evening, status',
+        'id, site_id, name, public_code, timezone, reminder_time_morning, reminder_time_evening, status',
       )
       .order('created_at', { ascending: false }),
   ])
 
   const typedSites = (sites ?? []) as SiteRow[]
   const typedProjects = (projects ?? []) as ProjectRow[]
-  const siteCountByProject = typedSites.reduce<Record<string, number>>(
-    (acc, site) => {
-      if (site.project_id) {
-        acc[site.project_id] = (acc[site.project_id] ?? 0) + 1
-      }
-      return acc
-    },
-    {},
+  const siteNameById = Object.fromEntries(
+    typedSites.map((site) => [site.id, site.name]),
   )
   const hasSchemaError = Boolean(sitesError || projectsError)
 
@@ -108,7 +103,10 @@ async function ProjectsContent() {
                 <div>
                   <p className="font-medium">{project.name}</p>
                   <p className="text-muted-foreground text-xs">
-                    Sites: {siteCountByProject[project.id] ?? 0}
+                    Site:{' '}
+                    {project.site_id
+                      ? (siteNameById[project.site_id] ?? project.site_id)
+                      : '--'}
                   </p>
                   <p className="text-muted-foreground text-xs">
                     Code: {project.public_code ?? '--'} • Timezone:{' '}

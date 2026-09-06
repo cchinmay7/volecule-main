@@ -65,10 +65,17 @@ export function addDaysIso(date: string, days: number): string {
  * further changes required — the seeds' own change is assumed already
  * applied by the caller and is NOT included in the result.
  *
+ * Dates are treated as [currentStart, currentEnd) — an EXCLUSIVE end,
+ * matching the source Excel's own convention (FINISH = START + DUR, no
+ * -1) and its zero-day gap between a predecessor's FINISH and its
+ * successor's START (see spec §11 item 1c). `end` is not "the last
+ * working day"; it's the day work stops and, absent a lag, the day the
+ * next task can start.
+ *
  * Two distinct relaxation rules, chosen by `mode`:
  *
  * - 'push' (a task slipped / was missed): for each dependent D of a task
- *   T that just moved, `required_start = T.currentEnd + 1 + lag`. D only
+ *   T that just moved, `required_start = T.currentEnd + lag`. D only
  *   moves if `required_start > D.currentStart` — checked against D's
  *   CURRENT start, not a max over all of D's predecessors. That's
  *   deliberate: D's current start already reflects whatever its
@@ -81,11 +88,11 @@ export function addDaysIso(date: string, days: number): string {
  * - 'pull' (a task finished early): pulling a dependent forward is only
  *   safe once ALL of its predecessors allow it, so for each dependent D
  *   of the task that just finished early, `earliest_start` is the max
- *   over EVERY predecessor P of D of `P.currentEnd + 1 + lag(P->D)` —
- *   not just the edge that triggered this pass. D moves only if it
- *   hasn't reached its own scheduled start yet (`today < D.currentStart`)
- *   and the recomputed `earliest_start` is actually earlier than its
- *   current start. This is why a diamond dependency gated by a slower
+ *   over EVERY predecessor P of D of `P.currentEnd + lag(P->D)` — not
+ *   just the edge that triggered this pass. D moves only if it hasn't
+ *   reached its own scheduled start yet (`today < D.currentStart`) and
+ *   the recomputed `earliest_start` is actually earlier than its current
+ *   start. This is why a diamond dependency gated by a slower
  *   predecessor silently absorbs an early finish on the faster branch
  *   until the slow branch also clears.
  *
@@ -145,10 +152,7 @@ export function computeCascade(
       if (mode === 'push') {
         const predecessor = state.get(movedId)
         if (!predecessor) continue
-        const requiredStart = addDaysIso(
-          predecessor.currentEnd,
-          1 + edge.lagDays,
-        )
+        const requiredStart = addDaysIso(predecessor.currentEnd, edge.lagDays)
         if (!(requiredStart > dependent.currentStart)) continue
         newStart = requiredStart
       } else {
@@ -157,10 +161,7 @@ export function computeCascade(
         for (const predEdge of predecessorEdges) {
           const predecessor = state.get(predEdge.dependsOnTaskId)
           if (!predecessor) continue
-          const candidate = addDaysIso(
-            predecessor.currentEnd,
-            1 + predEdge.lagDays,
-          )
+          const candidate = addDaysIso(predecessor.currentEnd, predEdge.lagDays)
           if (earliestStart === null || candidate > earliestStart) {
             earliestStart = candidate
           }
@@ -171,7 +172,7 @@ export function computeCascade(
         newStart = earliestStart
       }
 
-      const newEnd = addDaysIso(newStart, dependent.durationDays - 1)
+      const newEnd = addDaysIso(newStart, dependent.durationDays)
       state.set(dependentId, {
         ...dependent,
         currentStart: newStart,

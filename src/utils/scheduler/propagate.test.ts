@@ -17,11 +17,13 @@ describe('addDaysIso', () => {
 })
 
 describe('computeCascade — pull mode (early finish, diamond dependency)', () => {
-  // D depends on BOTH P1 and P2 (finish-to-start, no lag). D's current
-  // start is gated by whichever predecessor finishes later:
-  //   P1: 2026-09-01 -> 2026-09-05 (duration 5)
-  //   P2: 2026-09-01 -> 2026-09-10 (duration 10)
-  //   D:  required_start = max(P1.end+1, P2.end+1) = 2026-09-11, duration 5
+  // D depends on BOTH P1 and P2 (finish-to-start, no lag). Dates are
+  // [start, end) — an EXCLUSIVE end, matching the source Excel's own
+  // convention (FINISH = START + DUR) and its zero-day gap between a
+  // predecessor's end and its successor's start (spec §11 item 1c).
+  //   P1: 2026-09-01 -> 2026-09-06 (duration 5)
+  //   P2: 2026-09-01 -> 2026-09-11 (duration 10)
+  //   D:  required_start = max(P1.end, P2.end) = 2026-09-11, duration 5
   const edges: DependencyEdge[] = [
     { taskId: 'D', dependsOnTaskId: 'P1', lagDays: 0 },
     { taskId: 'D', dependsOnTaskId: 'P2', lagDays: 0 },
@@ -33,7 +35,7 @@ describe('computeCascade — pull mode (early finish, diamond dependency)', () =
         'P1',
         {
           currentStart: '2026-09-01',
-          currentEnd: '2026-09-05',
+          currentEnd: '2026-09-06',
           durationDays: 5,
         },
       ],
@@ -41,7 +43,7 @@ describe('computeCascade — pull mode (early finish, diamond dependency)', () =
         'P2',
         {
           currentStart: '2026-09-01',
-          currentEnd: '2026-09-10',
+          currentEnd: '2026-09-11',
           durationDays: 10,
         },
       ],
@@ -49,7 +51,7 @@ describe('computeCascade — pull mode (early finish, diamond dependency)', () =
         'D',
         {
           currentStart: '2026-09-11',
-          currentEnd: '2026-09-15',
+          currentEnd: '2026-09-16',
           durationDays: 5,
         },
       ],
@@ -62,41 +64,43 @@ describe('computeCascade — pull mode (early finish, diamond dependency)', () =
     const changes = computeCascade(
       baseTasks(),
       edges,
-      [{ taskId: 'P1', newEnd: '2026-09-03' }],
+      [{ taskId: 'P1', newEnd: '2026-09-04' }],
       'pull',
       today,
     )
 
-    // D is still gated by P2 (current end 2026-09-10 -> required 2026-09-11,
-    // unchanged), so nothing about D should appear in the result.
+    // D is still gated by P2 (current end 2026-09-11 -> required
+    // 2026-09-11, unchanged), so nothing about D should appear in the
+    // result.
     expect(changes.find((c) => c.taskId === 'D')).toBeUndefined()
     expect(changes).toEqual([])
   })
 
   it('moves D once the slower predecessor (P2) also finishes early enough', () => {
     // Simulate the state after P1's early finish has already been
-    // persisted (P1 now ends 2026-09-03), then P2 also finishes early.
+    // persisted (P1 now ends 2026-09-04), then P2 also finishes early.
     const tasksAfterP1 = baseTasks()
     tasksAfterP1.set('P1', {
       ...(tasksAfterP1.get('P1') as TaskState),
-      currentEnd: '2026-09-03',
+      currentEnd: '2026-09-04',
     })
 
     const changes = computeCascade(
       tasksAfterP1,
       edges,
-      [{ taskId: 'P2', newEnd: '2026-09-06' }],
+      [{ taskId: 'P2', newEnd: '2026-09-07' }],
       'pull',
       today,
     )
 
-    // earliest_start = max(P1.end+1, P2.end+1) = max(09-04, 09-07) = 09-07
-    // 09-07 < D.currentStart (09-11), and today (09-01) < 09-11, so D moves.
+    // earliest_start = max(P1.end, P2.end) = max(09-04, 09-07) = 09-07
+    // 09-07 < D.currentStart (09-11), and today (09-01) < 09-11, so D
+    // moves.
     const dChange = changes.find((c) => c.taskId === 'D')
     expect(dChange).toEqual({
       taskId: 'D',
       newStart: '2026-09-07',
-      newEnd: '2026-09-11', // duration_days = 5 -> start + 4
+      newEnd: '2026-09-12', // duration_days = 5 -> start + 5 (exclusive end)
     })
   })
 
@@ -107,8 +111,8 @@ describe('computeCascade — pull mode (early finish, diamond dependency)', () =
       baseTasks(),
       edges,
       [
-        { taskId: 'P1', newEnd: '2026-09-03' },
-        { taskId: 'P2', newEnd: '2026-09-06' },
+        { taskId: 'P1', newEnd: '2026-09-04' },
+        { taskId: 'P2', newEnd: '2026-09-07' },
       ],
       'pull',
       '2026-09-11', // == D.currentStart
@@ -119,9 +123,9 @@ describe('computeCascade — pull mode (early finish, diamond dependency)', () =
 })
 
 describe('computeCascade — push mode (missed target, chain with slack)', () => {
-  // A -> B -> C, finish-to-start, no lag. B has 4 days of slack before A's
-  // slip actually forces it to move (B's plan already starts well after
-  // A's earliest possible finish); C has zero slack relative to B.
+  // A -> B -> C, finish-to-start, no lag. B has slack before A's slip
+  // actually forces it to move (B's plan already starts well after A's
+  // earliest possible finish); C has zero slack relative to B.
   const edges: DependencyEdge[] = [
     { taskId: 'B', dependsOnTaskId: 'A', lagDays: 0 },
     { taskId: 'C', dependsOnTaskId: 'B', lagDays: 0 },
@@ -133,7 +137,7 @@ describe('computeCascade — push mode (missed target, chain with slack)', () =>
         'A',
         {
           currentStart: '2026-09-01',
-          currentEnd: '2026-09-05',
+          currentEnd: '2026-09-06',
           durationDays: 5,
         },
       ],
@@ -141,7 +145,7 @@ describe('computeCascade — push mode (missed target, chain with slack)', () =>
         'B',
         {
           currentStart: '2026-09-10',
-          currentEnd: '2026-09-14',
+          currentEnd: '2026-09-15',
           durationDays: 5,
         },
       ],
@@ -149,7 +153,7 @@ describe('computeCascade — push mode (missed target, chain with slack)', () =>
         'C',
         {
           currentStart: '2026-09-15',
-          currentEnd: '2026-09-19',
+          currentEnd: '2026-09-20',
           durationDays: 5,
         },
       ],
@@ -179,16 +183,17 @@ describe('computeCascade — push mode (missed target, chain with slack)', () =>
       expect(changes).toEqual([])
     }
 
-    expect(liveState.get('A')?.currentEnd).toBe('2026-09-09')
+    expect(liveState.get('A')?.currentEnd).toBe('2026-09-10')
     expect(liveState.get('B')).toEqual({
       currentStart: '2026-09-10',
-      currentEnd: '2026-09-14',
+      currentEnd: '2026-09-15',
       durationDays: 5,
     })
 
-    // Fifth slip: A now ends 2026-09-10, required_start for B = 2026-09-11,
-    // which finally exceeds B's current start (2026-09-10) -> B moves,
-    // and that in turn pushes C (which had zero slack relative to B).
+    // Fifth slip: A now ends 2026-09-11, required_start for B =
+    // 2026-09-11, which finally exceeds B's current start (2026-09-10)
+    // -> B moves, and that in turn pushes C (which had zero slack
+    // relative to B).
     const a = liveState.get('A') as TaskState
     const finalNewEnd = addDaysIso(a.currentEnd, 1)
     const finalChanges = computeCascade(
@@ -199,10 +204,10 @@ describe('computeCascade — push mode (missed target, chain with slack)', () =>
       '',
     )
 
-    expect(finalNewEnd).toBe('2026-09-10')
+    expect(finalNewEnd).toBe('2026-09-11')
     expect(finalChanges).toEqual([
-      { taskId: 'B', newStart: '2026-09-11', newEnd: '2026-09-15' },
-      { taskId: 'C', newStart: '2026-09-16', newEnd: '2026-09-20' },
+      { taskId: 'B', newStart: '2026-09-11', newEnd: '2026-09-16' },
+      { taskId: 'C', newStart: '2026-09-16', newEnd: '2026-09-21' },
     ])
   })
 
@@ -213,7 +218,7 @@ describe('computeCascade — push mode (missed target, chain with slack)', () =>
     const changes = computeCascade(
       tasks,
       edges,
-      [{ taskId: 'A', newEnd: '2026-09-06' }],
+      [{ taskId: 'A', newEnd: '2026-09-07' }],
       'push',
       '',
     )

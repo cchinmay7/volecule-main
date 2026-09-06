@@ -8,6 +8,7 @@ import { ProjectDetailView } from './project-detail-view'
 
 type ProjectRow = {
   id: string
+  site_id: string | null
   name: string
   public_code: string | null
   timezone: string
@@ -40,27 +41,33 @@ export default async function ProjectDetailPage({
   const { projectId } = await params
   const supabase = await createClient()
 
-  const [
-    { data: project, error: projectError },
-    { data: sites, error: sitesError },
-  ] = await Promise.all([
-    supabase
-      .from('projects')
-      .select(
-        'id, name, public_code, timezone, google_form_url_morning, google_form_url_evening, reminder_time_morning, reminder_time_evening, whatsapp_target, status, created_at',
-      )
-      .eq('id', projectId)
-      .single(),
-    supabase
-      .from('sites')
-      .select('id, name, client_name, status')
-      .eq('project_id', projectId)
-      .order('created_at', { ascending: false }),
-  ])
+  const { data: project, error: projectError } = await supabase
+    .from('projects')
+    .select(
+      'id, site_id, name, public_code, timezone, google_form_url_morning, google_form_url_evening, reminder_time_morning, reminder_time_evening, whatsapp_target, status, created_at',
+    )
+    .eq('id', projectId)
+    .single()
 
   if (projectError || !project) {
     notFound()
   }
+
+  const typedProject = project as ProjectRow
+
+  const [{ data: sites, error: sitesError }, { data: allSites }] =
+    await Promise.all([
+      typedProject.site_id
+        ? supabase
+            .from('sites')
+            .select('id, name, client_name, status')
+            .eq('id', typedProject.site_id)
+        : Promise.resolve({ data: [] as SiteRow[], error: null }),
+      supabase
+        .from('sites')
+        .select('id, name, client_name, status')
+        .order('name', { ascending: true }),
+    ])
 
   if (sitesError) {
     return (
@@ -70,9 +77,7 @@ export default async function ProjectDetailPage({
             Back to projects
           </Button>
         </Link>
-        <p className="text-destructive text-sm">
-          Could not load associated sites.
-        </p>
+        <p className="text-destructive text-sm">Could not load the site.</p>
       </div>
     )
   }
@@ -85,8 +90,9 @@ export default async function ProjectDetailPage({
         </Button>
       </Link>
       <ProjectDetailView
-        project={project as ProjectRow}
-        sites={(sites ?? []) as SiteRow[]}
+        project={typedProject}
+        site={((sites ?? [])[0] as SiteRow | undefined) ?? null}
+        allSites={(allSites ?? []) as SiteRow[]}
       />
     </div>
   )

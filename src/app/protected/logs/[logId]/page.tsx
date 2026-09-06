@@ -18,12 +18,14 @@ type LogRow = {
   targets_selected_json: unknown
   targets_achieved_json: unknown
   free_notes: string | null
+  escalate_to_volecule: boolean
   source_payload_json: unknown
   created_at: string
 }
 
 type ProjectRow = {
   id: string
+  site_id: string | null
   name: string
   public_code: string | null
 }
@@ -52,7 +54,7 @@ export default async function LogDetailsPage({ params }: LogDetailsPageProps) {
   const { data: log, error: logError } = await supabase
     .from('project_logs')
     .select(
-      'id, project_id, log_date, shift, source, external_submission_id, headcount_json, targets_selected_json, targets_achieved_json, free_notes, source_payload_json, created_at',
+      'id, project_id, log_date, shift, source, external_submission_id, headcount_json, targets_selected_json, targets_achieved_json, free_notes, escalate_to_volecule, source_payload_json, created_at',
     )
     .eq('id', logId)
     .single()
@@ -63,20 +65,20 @@ export default async function LogDetailsPage({ params }: LogDetailsPageProps) {
 
   const { data: project } = await supabase
     .from('projects')
-    .select('id, name, public_code')
+    .select('id, site_id, name, public_code')
     .eq('id', (log as LogRow).project_id)
     .single()
 
-  const { data: sites } = project
+  const typedProject = project as ProjectRow | null
+
+  const { data: site } = typedProject?.site_id
     ? await supabase
         .from('sites')
         .select('id, name, client_name')
-        .eq('project_id', project.id)
-        .order('created_at', { ascending: false })
-    : { data: [] as SiteRow[] }
+        .eq('id', typedProject.site_id)
+        .single()
+    : { data: null as SiteRow | null }
 
-  const typedProject = project as ProjectRow | null
-  const typedSites = (sites ?? []) as SiteRow[]
   const typedLog = log as LogRow
 
   return (
@@ -93,6 +95,9 @@ export default async function LogDetailsPage({ params }: LogDetailsPageProps) {
         </CardHeader>
         <CardContent className="space-y-4 text-sm">
           <div className="flex flex-wrap items-center gap-2">
+            {typedLog.escalate_to_volecule && (
+              <Badge variant="destructive">Escalated to Volecule</Badge>
+            )}
             <Badge variant="outline">{typedLog.shift}</Badge>
             <Badge variant="outline">{typedLog.source}</Badge>
             <span className="text-muted-foreground text-xs">
@@ -106,12 +111,8 @@ export default async function LogDetailsPage({ params }: LogDetailsPageProps) {
               {typedProject?.name ?? typedLog.project_id}
             </p>
             <p>
-              <span className="font-medium">Sites:</span>{' '}
-              {typedSites.length > 0
-                ? typedSites
-                    .map((site) => `${site.name} (${site.client_name})`)
-                    .join(', ')
-                : '--'}
+              <span className="font-medium">Site:</span>{' '}
+              {site ? `${site.name} (${site.client_name})` : '--'}
             </p>
             <p>
               <span className="font-medium">Public code:</span>{' '}

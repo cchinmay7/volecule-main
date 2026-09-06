@@ -8,7 +8,6 @@ import { SiteDetailView } from './site-detail-view'
 
 type SiteRow = {
   id: string
-  project_id: string | null
   name: string
   client_name: string
   status: string
@@ -40,12 +39,13 @@ export default async function SiteDetailPage({ params }: SiteDetailPageProps) {
   ] = await Promise.all([
     supabase
       .from('sites')
-      .select('id, project_id, name, client_name, status, created_at')
+      .select('id, name, client_name, status, created_at')
       .eq('id', siteId)
       .single(),
     supabase
       .from('projects')
       .select('id, name, public_code, status, timezone')
+      .eq('site_id', siteId)
       .order('created_at', { ascending: false }),
   ])
 
@@ -62,7 +62,7 @@ export default async function SiteDetailPage({ params }: SiteDetailPageProps) {
           </Button>
         </Link>
         <p className="text-destructive text-sm">
-          Could not load project options.
+          Could not load projects for this site.
         </p>
       </div>
     )

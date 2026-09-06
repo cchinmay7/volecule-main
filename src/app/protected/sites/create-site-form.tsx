@@ -31,8 +31,8 @@ export function CreateSiteForm() {
         />
       </div>
       <p className="text-muted-foreground text-xs">
-        A site is created standalone. Attach it to a project later from the
-        Start page.
+        A site is a standalone, top-level entity. Create one or more projects
+        under it later from the Start page.
       </p>
       <Button type="submit" className="w-full" disabled={pending}>
         {pending ? 'Creating…' : 'Create site'}

@@ -26,6 +26,11 @@ type ScheduleTaskRow = {
   duration_days: number
 }
 
+type DependencyEdgeRow = {
+  task_id: string
+  depends_on_task_id: string
+}
+
 type SchedulerPageProps = {
   params: Promise<{ projectId: string }>
 }
@@ -51,11 +56,32 @@ function toLocalDateString(date: Date, timezone: string): string {
 }
 
 // Derived, never stored — a stored task can only be pending/done/missed/
-// retired. "In progress" is purely a display label for a pending task
-// whose window is currently open.
-function displayStatus(task: ScheduleTaskRow, today: string): string {
+// retired. "In progress" is purely a display label for a pending task.
+//
+// A task with predecessors is gated on them alone (spec §11 item 1/1b):
+// it's in_progress once every direct predecessor is done, regardless of
+// its own current_planned_start — that's what lets a pulled-forward
+// successor read as active the evening its predecessor finishes, a full
+// day before its own recomputed start date arrives on the calendar. A
+// root task (no predecessors) has no such signal to read, so it falls
+// back to the date-window check. This is an OR between two
+// mutually-exclusive branches, not an AND — ANDing "predecessors done"
+// onto the date check would make a root task (vacuously "all zero
+// predecessors done") permanently in_progress from day one.
+function displayStatus(
+  task: ScheduleTaskRow,
+  today: string,
+  predecessorStatusesByTaskId: Map<string, string[]>,
+): string {
+  if (task.status !== 'pending') return task.status
+
+  const predecessorStatuses = predecessorStatusesByTaskId.get(task.id)
+  if (predecessorStatuses && predecessorStatuses.length > 0) {
+    const allPredecessorsDone = predecessorStatuses.every((s) => s === 'done')
+    return allPredecessorsDone ? 'in_progress' : task.status
+  }
+
   if (
-    task.status === 'pending' &&
     task.current_planned_start <= today &&
     today <= task.current_planned_end
   ) {
@@ -124,9 +150,28 @@ export default async function ProjectSchedulerPage({
   const today = toLocalDateString(new Date(), typedProject.timezone)
   const tasks = (tasksData ?? []) as ScheduleTaskRow[]
 
+  const taskIds = tasks.map((t) => t.id)
+  const { data: edgesData } =
+    taskIds.length > 0
+      ? await supabase
+          .from('schedule_task_dependencies')
+          .select('task_id, depends_on_task_id')
+          .in('task_id', taskIds)
+      : { data: [] as DependencyEdgeRow[] }
+
+  const statusById = new Map(tasks.map((t) => [t.id, t.status]))
+  const predecessorStatusesByTaskId = new Map<string, string[]>()
+  for (const edge of (edgesData ?? []) as DependencyEdgeRow[]) {
+    const predecessorStatus = statusById.get(edge.depends_on_task_id)
+    if (predecessorStatus === undefined) continue
+    const list = predecessorStatusesByTaskId.get(edge.task_id) ?? []
+    list.push(predecessorStatus)
+    predecessorStatusesByTaskId.set(edge.task_id, list)
+  }
+
   const counts = tasks.reduce(
     (acc, task) => {
-      const status = displayStatus(task, today)
+      const status = displayStatus(task, today, predecessorStatusesByTaskId)
       acc[status] = (acc[status] ?? 0) + 1
       return acc
     },
@@ -187,7 +232,11 @@ export default async function ProjectSchedulerPage({
                 </thead>
                 <tbody>
                   {tasks.map((task) => {
-                    const status = displayStatus(task, today)
+                    const status = displayStatus(
+                      task,
+                      today,
+                      predecessorStatusesByTaskId,
+                    )
                     const slipped =
                       task.current_planned_end !== task.original_planned_end
 

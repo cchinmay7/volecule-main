@@ -16,6 +16,7 @@ import { unstable_noStore as noStore } from 'next/cache'
 
 type ProjectRow = {
   id: string
+  site_id: string | null
   name: string
   public_code: string | null
 }
@@ -23,7 +24,6 @@ type ProjectRow = {
 type SiteRow = {
   id: string
   name: string
-  project_id: string | null
 }
 
 type SiteLogRow = {
@@ -34,6 +34,7 @@ type SiteLogRow = {
   source: 'google_form' | 'manual'
   created_at: string
   free_notes: string | null
+  escalate_to_volecule: boolean
 }
 
 export default async function LogsPage() {
@@ -65,23 +66,20 @@ async function LogsContent() {
     { data: sites, error: sitesError },
     { data: logs, error: logsError },
   ] = await Promise.all([
-    supabase.from('projects').select('id, name, public_code'),
-    supabase.from('sites').select('id, name, project_id'),
+    supabase.from('projects').select('id, site_id, name, public_code'),
+    supabase.from('sites').select('id, name'),
     supabase
       .from('project_logs')
-      .select('id, project_id, log_date, shift, source, created_at, free_notes')
+      .select(
+        'id, project_id, log_date, shift, source, created_at, free_notes, escalate_to_volecule',
+      )
       .order('created_at', { ascending: false })
       .limit(50),
   ])
 
   const typedSites = (sites ?? []) as SiteRow[]
-  const siteNamesByProjectId = typedSites.reduce<Record<string, string[]>>(
-    (acc, site) => {
-      if (!site.project_id) return acc
-      acc[site.project_id] = [...(acc[site.project_id] ?? []), site.name]
-      return acc
-    },
-    {},
+  const siteNameById = Object.fromEntries(
+    typedSites.map((site) => [site.id, site.name]),
   )
   const projectById = Object.fromEntries(
     ((projects ?? []) as ProjectRow[]).map((project) => [project.id, project]),
@@ -106,9 +104,9 @@ async function LogsContent() {
         ) : typedLogs.length > 0 ? (
           typedLogs.map((log) => {
             const project = projectById[log.project_id]
-            const siteNames = project
-              ? (siteNamesByProjectId[project.id] ?? [])
-              : []
+            const siteName = project?.site_id
+              ? (siteNameById[project.site_id] ?? null)
+              : null
 
             return (
               <div
@@ -121,15 +119,17 @@ async function LogsContent() {
                       {project?.name ?? log.project_id}
                     </p>
                     <p className="text-muted-foreground text-xs">
-                      Sites:{' '}
-                      {siteNames.length > 0 ? siteNames.join(', ') : '--'} •
-                      Code: {project?.public_code ?? '--'}
+                      Site: {siteName ?? '--'} • Code:{' '}
+                      {project?.public_code ?? '--'}
                     </p>
                     <p className="text-muted-foreground text-xs">
                       {log.log_date} • {log.shift}
                     </p>
                   </div>
                   <div className="flex items-center gap-2">
+                    {log.escalate_to_volecule && (
+                      <Badge variant="destructive">Escalated</Badge>
+                    )}
                     <Badge variant="outline">{log.source}</Badge>
                     <span className="text-muted-foreground text-xs">
                       {new Date(log.created_at).toLocaleString()}

@@ -1,9 +1,16 @@
 create extension if not exists pgcrypto;
 
--- Canonical v1 model after terminology swap:
--- - projects: top-level operational project configuration
--- - sites: site rows linked to one project (sites.project_id)
+-- Canonical v1 model:
+-- - sites: top-level, pre-existing physical/client entities — a site
+--   precedes any project created for it and can have several
+-- - projects: operational tracking wrapper for one site (projects.site_id),
+--   each with its own Google Form pair and schedule
 -- - project_logs: morning/evening logs linked to one project
+--
+-- Deleting a site cascades to delete every project under it (and, from
+-- there, that project's own schedule_tasks/project_logs/etc., which
+-- already cascade off projects.id). Deleting a project never touches its
+-- site or sibling projects.
 --
 -- This script is safe to re-run and can migrate legacy swap state where:
 -- - old "sites" held project config
@@ -48,8 +55,18 @@ begin
 end $$;
 
 -- 2) Create canonical tables if missing.
+create table if not exists public.sites (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  client_name text not null,
+  status text not null default 'active',
+  created_by uuid references auth.users (id),
+  created_at timestamptz not null default now()
+);
+
 create table if not exists public.projects (
   id uuid primary key default gen_random_uuid(),
+  site_id uuid references public.sites (id) on delete cascade,
   name text not null,
   public_code text,
   timezone text not null default 'Asia/Kolkata',
@@ -63,58 +80,16 @@ create table if not exists public.projects (
   created_at timestamptz not null default now()
 );
 
-create table if not exists public.sites (
-  id uuid primary key default gen_random_uuid(),
-  project_id uuid references public.projects (id) on delete cascade,
-  name text not null,
-  client_name text not null,
-  status text not null default 'active',
-  created_by uuid references auth.users (id),
-  created_at timestamptz not null default now()
-);
-
--- 3) Align legacy columns to canonical names.
-do $$
-begin
-  if exists (
-    select 1
-    from information_schema.columns
-    where table_schema = 'public'
-      and table_name = 'sites'
-      and column_name = 'site_id'
-  ) and not exists (
-    select 1
-    from information_schema.columns
-    where table_schema = 'public'
-      and table_name = 'sites'
-      and column_name = 'project_id'
-  ) then
-    execute 'alter table public.sites rename column site_id to project_id';
-  end if;
-end $$;
-
-do $$
-begin
-  if exists (
-    select 1
-    from information_schema.columns
-    where table_schema = 'public'
-      and table_name = 'sites'
-      and column_name = 'site_id'
-  ) and exists (
-    select 1
-    from information_schema.columns
-    where table_schema = 'public'
-      and table_name = 'sites'
-      and column_name = 'project_id'
-  ) then
-    execute 'update public.sites set project_id = coalesce(project_id, site_id) where project_id is null and site_id is not null';
-    execute 'alter table public.sites drop column site_id';
-  end if;
-end $$;
-
+-- 3) Reverse the sites/projects relationship: a site precedes its
+-- projects — one site, many projects — not the other way round. Data is
+-- disposable at this stage, so this drops the old sites.project_id
+-- column outright rather than migrating rows across the FK reversal.
 alter table public.sites
-  add column if not exists project_id uuid references public.projects (id) on delete cascade;
+  drop column if exists project_id;
+
+alter table public.projects
+  add column if not exists site_id uuid references public.sites (id) on delete cascade;
+
 alter table public.sites
   add column if not exists status text not null default 'active';
 alter table public.sites
@@ -192,11 +167,19 @@ create table if not exists public.project_logs (
   targets_selected_json jsonb,
   targets_achieved_json jsonb,
   free_notes text,
+  escalate_to_volecule boolean not null default false,
   source text not null default 'google_form' check (source in ('google_form', 'manual')),
   external_submission_id text,
   source_payload_json jsonb,
   created_at timestamptz not null default now()
 );
+
+-- Escalation flag — the evening form's "Escalate to Volecule?" answer.
+-- Previously only visible buried in source_payload_json's raw dump; now a
+-- first-class column so it can be surfaced as a badge (logs list,
+-- dashboard) instead of requiring someone to open a log and read JSON.
+alter table public.project_logs
+  add column if not exists escalate_to_volecule boolean not null default false;
 
 do $$
 begin
@@ -242,7 +225,7 @@ drop index if exists public.site_logs_site_date_shift_unique;
 drop index if exists public.site_logs_site_external_submission_unique;
 drop index if exists public.site_logs_site_id_created_at_idx;
 drop index if exists public.sites_public_code_unique;
-drop index if exists public.projects_site_id_idx;
+drop index if exists public.sites_project_id_idx;
 
 create unique index if not exists project_logs_project_date_shift_unique
   on public.project_logs (project_id, log_date, shift);
@@ -258,8 +241,8 @@ create unique index if not exists project_logs_project_external_submission_uniqu
 create index if not exists project_logs_project_id_created_at_idx
   on public.project_logs (project_id, created_at desc);
 
-create index if not exists sites_project_id_idx
-  on public.sites (project_id);
+create index if not exists projects_site_id_idx
+  on public.projects (site_id);
 
 -- 7) Enable Row Level Security.
 alter table public.projects enable row level security;

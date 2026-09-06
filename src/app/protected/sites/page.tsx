@@ -17,7 +17,6 @@ import { CreateSiteForm } from './create-site-form'
 
 type SiteRow = {
   id: string
-  project_id: string | null
   name: string
   client_name: string
   status: string
@@ -26,6 +25,7 @@ type SiteRow = {
 
 type ProjectRow = {
   id: string
+  site_id: string | null
   name: string
   status: string
 }
@@ -53,15 +53,20 @@ async function SitesContent() {
   ] = await Promise.all([
     supabase
       .from('sites')
-      .select('id, project_id, name, client_name, status, created_at')
+      .select('id, name, client_name, status, created_at')
       .order('created_at', { ascending: false }),
-    supabase.from('projects').select('id, name, status'),
+    supabase.from('projects').select('id, site_id, name, status'),
   ])
 
   const typedSites = (sites ?? []) as SiteRow[]
   const typedProjects = (projects ?? []) as ProjectRow[]
-  const projectById = Object.fromEntries(
-    typedProjects.map((project) => [project.id, project]),
+  const projectsBySiteId = typedProjects.reduce<Record<string, ProjectRow[]>>(
+    (acc, project) => {
+      if (!project.site_id) return acc
+      acc[project.site_id] = [...(acc[project.site_id] ?? []), project]
+      return acc
+    },
+    {},
   )
 
   const hasSchemaError = Boolean(sitesError || projectsError)
@@ -100,9 +105,7 @@ async function SitesContent() {
             </p>
           ) : typedSites.length > 0 ? (
             typedSites.map((site) => {
-              const project = site.project_id
-                ? projectById[site.project_id]
-                : null
+              const siteProjects = projectsBySiteId[site.id] ?? []
               return (
                 <div
                   key={site.id}
@@ -115,21 +118,17 @@ async function SitesContent() {
                         Client: {site.client_name}
                       </p>
                       <p className="text-muted-foreground text-xs">
-                        Project: {project?.name ?? site.project_id ?? '--'}
+                        Projects:{' '}
+                        {siteProjects.length > 0
+                          ? siteProjects.map((p) => p.name).join(', ')
+                          : '--'}
                       </p>
                     </div>
                     <div className="flex items-center gap-2">
-                      {project && (
-                        <Badge
-                          variant={
-                            project.status === 'active'
-                              ? 'default'
-                              : 'secondary'
-                          }
-                        >
-                          Project {project.status}
-                        </Badge>
-                      )}
+                      <Badge variant="outline">
+                        {siteProjects.length} project
+                        {siteProjects.length === 1 ? '' : 's'}
+                      </Badge>
                       <Badge
                         variant={
                           site.status === 'active' ? 'default' : 'secondary'
