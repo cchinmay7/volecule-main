@@ -126,4 +126,17 @@
   body {
     @apply bg-background text-foreground;
   }
+  /* color-scheme (above) only hints which native-chrome mode a browser
+     should use for a <select>'s popup — it doesn't force a background/
+     text color on the individual <option> rows, and some browsers still
+     render an unselected row with a mismatched light background under a
+     dark-styled control (confirmed live: readable on the closed control
+     and the hovered/selected row, unreadable light-on-light on every
+     other row). Setting both explicitly on every select/option leaves no
+     native default to fall back on. */
+  select,
+  option {
+    background-color: var(--background);
+    color: var(--foreground);
+  }
 }
