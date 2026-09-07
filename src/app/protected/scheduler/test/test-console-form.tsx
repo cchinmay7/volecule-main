@@ -16,7 +16,9 @@ type TaskOption = {
   external_ref: string | null
   name: string
   status: string
+  current_planned_start: string
   current_planned_end: string
+  actual_start: string | null
 }
 
 function todayIso(): string {
@@ -34,6 +36,7 @@ export function TestConsoleForm({
   const [shift, setShift] = useState<'morning' | 'evening'>('evening')
   const [fakeDate, setFakeDate] = useState(todayIso())
   const [achievedRefs, setAchievedRefs] = useState<Set<string>>(new Set())
+  const [startedRefs, setStartedRefs] = useState<Set<string>>(new Set())
 
   const [state, formAction, pending] = useActionState(submitTestLogAction, null)
 
@@ -42,8 +45,22 @@ export function TestConsoleForm({
     [tasks, projectId],
   )
 
+  const notYetStartedTasks = useMemo(
+    () => projectTasks.filter((t) => t.actual_start === null),
+    [projectTasks],
+  )
+
   function toggleRef(ref: string) {
     setAchievedRefs((prev) => {
+      const next = new Set(prev)
+      if (next.has(ref)) next.delete(ref)
+      else next.add(ref)
+      return next
+    })
+  }
+
+  function toggleStartedRef(ref: string) {
+    setStartedRefs((prev) => {
       const next = new Set(prev)
       if (next.has(ref)) next.delete(ref)
       else next.add(ref)
@@ -59,6 +76,9 @@ export function TestConsoleForm({
       {Array.from(achievedRefs).map((ref) => (
         <input key={ref} type="hidden" name="achieved_task_ref" value={ref} />
       ))}
+      {Array.from(startedRefs).map((ref) => (
+        <input key={ref} type="hidden" name="started_task_ref" value={ref} />
+      ))}
 
       <div className="grid gap-3 sm:grid-cols-3">
         <div className="space-y-2">
@@ -70,6 +90,7 @@ export function TestConsoleForm({
             onChange={(e) => {
               setProjectId(e.target.value)
               setAchievedRefs(new Set())
+              setStartedRefs(new Set())
             }}
             disabled={pending}
           >
@@ -90,8 +111,8 @@ export function TestConsoleForm({
             onChange={(e) => setShift(e.target.value as 'morning' | 'evening')}
             disabled={pending}
           >
-            <option value="evening">Evening (triggers propagation)</option>
-            <option value="morning">Morning (log only, no propagation)</option>
+            <option value="evening">Evening (achieved / delayed-end)</option>
+            <option value="morning">Morning (start-confirmation, §12)</option>
           </select>
         </div>
 
@@ -107,12 +128,59 @@ export function TestConsoleForm({
         </div>
       </div>
 
+      {shift === 'morning' && (
+        <div className="space-y-2">
+          <Label>Starts confirmed on this fake date</Label>
+          {notYetStartedTasks.length === 0 ? (
+            <p className="text-muted-foreground text-xs">
+              No unconfirmed (not-yet-started) tasks for this project.
+            </p>
+          ) : (
+            <div className="max-h-72 space-y-1 overflow-y-auto rounded-md border p-2">
+              {notYetStartedTasks.map((task) => {
+                const ref = task.external_ref ?? task.id
+                return (
+                  <label
+                    key={task.id}
+                    className="hover:bg-muted/50 flex items-center gap-2 rounded px-1 py-1 text-sm"
+                  >
+                    <Checkbox
+                      checked={startedRefs.has(ref)}
+                      onCheckedChange={() => toggleStartedRef(ref)}
+                      disabled={pending || !task.external_ref}
+                    />
+                    <span className="font-mono text-xs">
+                      {task.external_ref ?? '—'}
+                    </span>
+                    <span>{task.name}</span>
+                    <Badge variant="outline" className="ml-auto">
+                      recommended start {task.current_planned_start}
+                    </Badge>
+                  </label>
+                )
+              })}
+            </div>
+          )}
+          <p className="text-muted-foreground text-xs">
+            This is the dedicated start checklist (spec §12), distinct from the
+            deadline checklist below — a separate question from &ldquo;what do
+            you expect to finish today.&rdquo; Ticked and eligible (predecessors
+            all done) &rarr; actual_start is set and dates recompute from it.
+            Left unticked while the recommended start has already arrived &rarr;
+            pushed +1 day, both start and end together, duration unchanged.
+            Ticked but a predecessor isn&apos;t actually done &rarr; rejected
+            and recorded in schedule_ingestion_flags, not silently applied (open
+            question (b)).
+          </p>
+        </div>
+      )}
+
       {shift === 'evening' && (
         <div className="space-y-2">
           <Label>Targets achieved on this fake date</Label>
           {projectTasks.length === 0 ? (
             <p className="text-muted-foreground text-xs">
-              No pending or missed tasks for this project.
+              No pending tasks for this project.
             </p>
           ) : (
             <div className="max-h-72 space-y-1 overflow-y-auto rounded-md border p-2">
@@ -133,12 +201,13 @@ export function TestConsoleForm({
                     </span>
                     <span>{task.name}</span>
                     <Badge
-                      variant={
-                        task.status === 'missed' ? 'destructive' : 'outline'
-                      }
+                      variant={task.actual_start ? 'outline' : 'destructive'}
                       className="ml-auto"
                     >
-                      {task.status} · due {task.current_planned_end}
+                      {task.actual_start
+                        ? `started ${task.actual_start}`
+                        : 'not started yet'}{' '}
+                      · due {task.current_planned_end}
                     </Badge>
                   </label>
                 )
@@ -146,11 +215,14 @@ export function TestConsoleForm({
             </div>
           )}
           <p className="text-muted-foreground text-xs">
-            Anything left unchecked here that is due on or before the fake date
-            is treated exactly like a real unticked evening checkbox — it gets
-            flagged missed and cascades, unless its own predecessors aren&apos;t
-            done yet (spec §11 item 1d), in which case it is skipped entirely
-            for this run.
+            This is the deadline checklist — anything left unchecked here that
+            is due on or before the fake date is treated exactly like a real
+            unticked evening checkbox: flagged delayed-end and cascaded. A task
+            still marked &ldquo;not started yet&rdquo; is exempt from this check
+            entirely (open question (c)) — ticking it anyway gets rejected and
+            recorded in schedule_ingestion_flags instead of processed, and an
+            unconfirmed task past its own predecessor gate is also skipped
+            silently either way (spec §11 item 1d).
           </p>
         </div>
       )}

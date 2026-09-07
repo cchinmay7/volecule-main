@@ -44,6 +44,12 @@
 }
 
 :root {
+  /* Tells the browser which theme is active so NATIVE controls (a
+     <select>'s dropdown popup, scrollbars, checkboxes) render with
+     matching contrast automatically. Without this, a <select> styled for
+     dark mode still opens a browser-default LIGHT popup — light text on
+     a light background, unreadable. */
+  color-scheme: light;
   --radius: 0.625rem;
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
@@ -79,6 +85,7 @@
 }
 
 .dark {
+  color-scheme: dark;
   --background: oklch(0.145 0 0);
   --foreground: oklch(0.985 0 0);
   --card: oklch(0.205 0 0);

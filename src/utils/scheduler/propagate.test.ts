@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   addDaysIso,
   computeCascade,
+  diffDaysIso,
   type CascadeChange,
   type DependencyEdge,
   type TaskState,
@@ -13,6 +14,24 @@ describe('addDaysIso', () => {
     expect(addDaysIso('2026-09-30', 1)).toBe('2026-10-01')
     expect(addDaysIso('2026-12-31', 1)).toBe('2027-01-01')
     expect(addDaysIso('2026-09-10', -1)).toBe('2026-09-09')
+  })
+})
+
+describe('diffDaysIso', () => {
+  it('is the exact inverse of addDaysIso', () => {
+    expect(diffDaysIso('2026-09-10', '2026-09-11')).toBe(1)
+    expect(diffDaysIso('2026-09-30', '2026-10-01')).toBe(1)
+    expect(diffDaysIso('2026-12-31', '2027-01-01')).toBe(1)
+    expect(diffDaysIso('2026-09-11', '2026-09-10')).toBe(-1)
+    expect(diffDaysIso('2026-09-10', '2026-09-10')).toBe(0)
+  })
+
+  it('matches the duration-shrink use case: how many days early a completion is', () => {
+    // A 5-day task planned to end the 15th finishes early on the 12th —
+    // duration_days should shrink by exactly 3.
+    const plannedEnd = '2026-09-15'
+    const actualEnd = '2026-09-12'
+    expect(diffDaysIso(actualEnd, plannedEnd)).toBe(3)
   })
 })
 
@@ -122,7 +141,7 @@ describe('computeCascade — pull mode (early finish, diamond dependency)', () =
   })
 })
 
-describe('computeCascade — push mode (missed target, chain with slack)', () => {
+describe('computeCascade — push mode (delayed target, chain with slack)', () => {
   // A -> B -> C, finish-to-start, no lag. B has slack before A's slip
   // actually forces it to move (B's plan already starts well after A's
   // earliest possible finish); C has zero slack relative to B.

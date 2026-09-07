@@ -1,10 +1,16 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { normalizeTaskId } from '@/utils/scheduler/task-id'
 import {
-  applyMissedTargets,
+  applyConfirmedStarts,
+  applyDelayedEnds,
+  applyDelayedStarts,
   applyTaskCompletions,
 } from '@/utils/scheduler/propagate'
 import { filterEligibleCandidates } from '@/utils/scheduler/gating'
+
+export type IngestionFlagType =
+  | 'start_confirmed_before_predecessor_done'
+  | 'target_ticked_before_confirmed_start'
 
 /**
  * Core log-ingestion + schedule-propagation logic, shared by the real
@@ -29,6 +35,12 @@ export type IngestSubmissionInput = {
     headcount?: unknown
     targets_selected?: unknown
     targets_achieved?: unknown
+    /** Morning-only: the dedicated start checklist (spec §12) — tasks
+     * whose recommended start is due, ticked if actually started. A
+     * separate question from targets_selected, which is deadline-scoped
+     * ("what do you expect to finish today") and was never a start
+     * signal at all. */
+    starts_confirmed?: unknown
     free_notes?: unknown
     escalate_to_volecule?: unknown
   }
@@ -94,6 +106,7 @@ export async function ingestFormSubmission(
   const headcountJson = fv.headcount ?? null
   const targetsSelectedJson = fv.targets_selected ?? null
   const targetsAchievedJson = fv.targets_achieved ?? null
+  const startsConfirmedJson = fv.starts_confirmed ?? null
   const freeNotes = typeof fv.free_notes === 'string' ? fv.free_notes : null
   const escalateToVolecule = parseEscalateFlag(fv.escalate_to_volecule)
 
@@ -107,6 +120,7 @@ export async function ingestFormSubmission(
         headcount_json: headcountJson,
         targets_selected_json: targetsSelectedJson,
         targets_achieved_json: targetsAchievedJson,
+        starts_confirmed_json: startsConfirmedJson,
         free_notes: freeNotes,
         escalate_to_volecule: escalateToVolecule,
         source: input.source,
@@ -126,23 +140,34 @@ export async function ingestFormSubmission(
     return { ok: false, status: 500, error: 'Failed to save log' }
   }
 
-  // Trigger schedule propagation for evening submissions. A project with
-  // no imported schedule yet simply has no candidate tasks below, so
-  // this is a no-op for it rather than needing its own check.
-  if (input.shift === 'evening') {
-    try {
+  const triggerProjectLogId = (upsertedLog?.id as string) ?? null
+
+  // Trigger schedule propagation. A project with no imported schedule yet
+  // simply has no candidate tasks below, so this is a no-op for it rather
+  // than needing its own check. Morning drives start-confirmation
+  // (spec §12); evening drives completion/delayed-end, as before.
+  try {
+    if (input.shift === 'morning') {
+      await runMorningPropagation({
+        supabase,
+        projectId: project.id,
+        logDate,
+        startsConfirmedJson,
+        triggerProjectLogId,
+      })
+    } else {
       await runEveningPropagation({
         supabase,
         projectId: project.id,
         logDate,
         targetsAchievedJson,
-        triggerProjectLogId: (upsertedLog?.id as string) ?? null,
+        triggerProjectLogId,
         freeNotes,
       })
-    } catch (propagationError) {
-      console.error('[ingestion] schedule propagation error', propagationError)
-      // Never fail log ingestion because of a propagation error.
     }
+  } catch (propagationError) {
+    console.error('[ingestion] schedule propagation error', propagationError)
+    // Never fail log ingestion because of a propagation error.
   }
 
   return { ok: true, logDate, shift: input.shift }
@@ -174,9 +199,9 @@ async function runEveningPropagation({
 
   const { data: candidateTasks, error: tasksError } = await supabase
     .from('schedule_tasks')
-    .select('id, external_ref, current_planned_end')
+    .select('id, external_ref, current_planned_end, actual_start')
     .eq('project_id', projectId)
-    .in('status', ['pending', 'missed'])
+    .eq('status', 'pending')
 
   if (tasksError) {
     console.error('[ingestion] task query error', tasksError)
@@ -199,7 +224,8 @@ async function runEveningPropagation({
   }
 
   const completions: { taskId: string; actualEnd: string }[] = []
-  const missed: string[] = []
+  const delayedEnd: string[] = []
+  const invalidFlags: { taskId: string; detail: string }[] = []
 
   for (const task of candidateTasks) {
     if (!gate.eligibleTaskIds.has(task.id as string)) continue
@@ -207,13 +233,41 @@ async function runEveningPropagation({
     const externalRef = task.external_ref as string | null
     const normalized = externalRef ? normalizeTaskId(externalRef) : null
     const plannedEnd = task.current_planned_end as string
+    const actualStart = task.actual_start as string | null
+    const wasTicked = normalized !== null && achievedIds.has(normalized)
 
-    if (normalized && achievedIds.has(normalized)) {
+    // spec §12 (c): a task never confirmed started is exempt from the
+    // finish-deadline check entirely — it can't sensibly be judged
+    // against a deadline that was never real to begin with. A tick
+    // arriving anyway is the deadline-side mirror of open question (b),
+    // resolved the same way in finding 4: reject, don't process, but
+    // record it rather than silently drop it.
+    if (actualStart === null) {
+      if (wasTicked) {
+        invalidFlags.push({
+          taskId: task.id as string,
+          detail: `Ticked achieved on ${logDate}, but actual_start was never confirmed.`,
+        })
+      }
+      continue
+    }
+
+    if (wasTicked) {
       completions.push({ taskId: task.id as string, actualEnd: logDate })
     } else if (plannedEnd <= logDate) {
-      missed.push(task.id as string)
+      delayedEnd.push(task.id as string)
     }
     // else: not due yet — leave untouched
+  }
+
+  if (invalidFlags.length > 0) {
+    await recordIngestionFlags(
+      supabase,
+      projectId,
+      triggerProjectLogId,
+      'target_ticked_before_confirmed_start',
+      invalidFlags,
+    )
   }
 
   if (completions.length > 0) {
@@ -234,23 +288,192 @@ async function runEveningPropagation({
     }
   }
 
-  if (missed.length > 0) {
-    const outcome = await applyMissedTargets({
+  if (delayedEnd.length > 0) {
+    const outcome = await applyDelayedEnds({
       supabase,
       projectId,
-      missedTaskIds: missed,
+      delayedTaskIds: delayedEnd,
       triggerProjectLogId,
       missReason: freeNotes,
     })
     if (outcome.success) {
-      console.info('[ingestion] missed targets applied', {
-        count: missed.length,
+      console.info('[ingestion] delayed ends applied', {
+        count: delayedEnd.length,
         tasksChanged: outcome.tasksChanged,
         versionNumber: outcome.versionNumber,
       })
     } else {
-      console.error('[ingestion] missed targets failed', outcome.error)
+      console.error('[ingestion] delayed ends failed', outcome.error)
     }
+  }
+}
+
+/**
+ * Morning-side counterpart to runEveningPropagation (spec §12): reads the
+ * dedicated start checklist (starts_confirmed, distinct from
+ * targets_selected) and either confirms a start or pushes it +1 day,
+ * for every candidate whose recommended start is due
+ * (current_planned_start <= today) and who hasn't been confirmed yet
+ * (actual_start is null). Same eligibility gate as the evening side —
+ * a task whose predecessors aren't all done can't be confirmed here
+ * either, regardless of what the payload says (spec §12 open question
+ * (b)).
+ */
+async function runMorningPropagation({
+  supabase,
+  projectId,
+  logDate,
+  startsConfirmedJson,
+  triggerProjectLogId,
+}: {
+  supabase: SupabaseClient
+  projectId: string
+  logDate: string
+  startsConfirmedJson: unknown
+  triggerProjectLogId: string | null
+}) {
+  const confirmedIds = new Set<string>()
+  if (Array.isArray(startsConfirmedJson)) {
+    for (const label of startsConfirmedJson) {
+      if (typeof label !== 'string') continue
+      const normalized = normalizeTaskId(label)
+      if (normalized) confirmedIds.add(normalized)
+    }
+  }
+
+  const { data: candidateTasks, error: tasksError } = await supabase
+    .from('schedule_tasks')
+    .select('id, external_ref, current_planned_start')
+    .eq('project_id', projectId)
+    .eq('status', 'pending')
+    .is('actual_start', null)
+
+  if (tasksError) {
+    console.error('[ingestion] morning task query error', tasksError)
+    return
+  }
+  if (!candidateTasks || candidateTasks.length === 0) return
+
+  const gate = await filterEligibleCandidates(
+    supabase,
+    candidateTasks.map((t) => t.id as string),
+  )
+  if (!gate.ok) {
+    console.error('[ingestion] morning gating query error', gate.error)
+    return
+  }
+
+  const confirmed: string[] = []
+  const delayedStart: string[] = []
+  const invalidFlags: { taskId: string; detail: string }[] = []
+
+  for (const task of candidateTasks) {
+    const externalRef = task.external_ref as string | null
+    const normalized = externalRef ? normalizeTaskId(externalRef) : null
+    const plannedStart = task.current_planned_start as string
+    const wasTicked = normalized !== null && confirmedIds.has(normalized)
+
+    if (!gate.eligibleTaskIds.has(task.id as string)) {
+      // spec §12 open question (b): confirmed before its predecessor was
+      // done — reject, don't process, but record it rather than
+      // silently drop it.
+      if (wasTicked) {
+        invalidFlags.push({
+          taskId: task.id as string,
+          detail: `Ticked started on ${logDate}, but a predecessor wasn't done yet.`,
+        })
+      }
+      continue
+    }
+
+    if (wasTicked) {
+      confirmed.push(task.id as string)
+    } else if (plannedStart <= logDate) {
+      delayedStart.push(task.id as string)
+    }
+    // else: not due yet — leave untouched
+  }
+
+  if (invalidFlags.length > 0) {
+    await recordIngestionFlags(
+      supabase,
+      projectId,
+      triggerProjectLogId,
+      'start_confirmed_before_predecessor_done',
+      invalidFlags,
+    )
+  }
+
+  if (confirmed.length > 0) {
+    const outcome = await applyConfirmedStarts({
+      supabase,
+      projectId,
+      confirmedTaskIds: confirmed,
+      confirmedDate: logDate,
+      triggerProjectLogId,
+    })
+    if (outcome.success) {
+      console.info('[ingestion] confirmed starts applied', {
+        count: confirmed.length,
+        tasksChanged: outcome.tasksChanged,
+        versionNumber: outcome.versionNumber,
+      })
+    } else {
+      console.error('[ingestion] confirmed starts failed', outcome.error)
+    }
+  }
+
+  if (delayedStart.length > 0) {
+    const outcome = await applyDelayedStarts({
+      supabase,
+      projectId,
+      delayedStartTaskIds: delayedStart,
+      triggerProjectLogId,
+      missReason: null,
+    })
+    if (outcome.success) {
+      console.info('[ingestion] delayed starts applied', {
+        count: delayedStart.length,
+        tasksChanged: outcome.tasksChanged,
+        versionNumber: outcome.versionNumber,
+      })
+    } else {
+      console.error('[ingestion] delayed starts failed', outcome.error)
+    }
+  }
+}
+
+/** Records ingestion-time anomalies that were rejected rather than
+ * applied (spec §12 open questions (b) and finding 4) — a console.error
+ * for real-time visibility, plus a permanent schedule_ingestion_flags
+ * row so it isn't just a log line that scrolls away. Never allowed to
+ * fail the ingestion request itself. Exported for reuse by the
+ * manual-override action (spec §12 open question (j)), which hits the
+ * same rejection path when an operator tries to confirm a task whose
+ * predecessor isn't actually done. */
+export async function recordIngestionFlags(
+  supabase: SupabaseClient,
+  projectId: string,
+  projectLogId: string | null,
+  flagType: IngestionFlagType,
+  items: { taskId: string; detail: string }[],
+) {
+  if (items.length === 0) return
+
+  console.error(`[ingestion] flagged: ${flagType}`, items)
+
+  const { error } = await supabase.from('schedule_ingestion_flags').insert(
+    items.map((item) => ({
+      project_id: projectId,
+      task_id: item.taskId,
+      project_log_id: projectLogId,
+      flag_type: flagType,
+      detail: item.detail,
+    })),
+  )
+
+  if (error) {
+    console.error('[ingestion] failed to record ingestion flag', error)
   }
 }
 

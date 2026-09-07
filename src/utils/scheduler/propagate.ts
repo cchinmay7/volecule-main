@@ -5,15 +5,16 @@ import type { SupabaseClient } from '@supabase/supabase-js'
  * Propagation Engine" spec §06.
  *
  * This module assumes the caller has ALREADY decided which tasks are
- * missed or completed (e.g. from a site log or an overdue sweep). Its job
- * is purely to compute and persist the cascading date changes that follow
- * from that decision — never to decide what's late.
+ * delayed or completed (e.g. from a site log or an overdue sweep). Its
+ * job is purely to compute and persist the cascading date changes that
+ * follow from that decision — never to decide what's late.
  *
  * Structure mirrors parse-excel.ts / graph.ts: `computeCascade` below is a
  * pure, dependency-free relaxation over the DAG (unit-tested in
- * propagate.test.ts with no database involved); `applyMissedTargets` and
- * `applyTaskCompletions` are thin I/O wrappers that fetch plain objects
- * from Supabase, call the pure function, and write the results back.
+ * propagate.test.ts with no database involved); `applyDelayedEnds`,
+ * `applyConfirmedStarts`, `applyDelayedStarts`, and `applyTaskCompletions`
+ * are thin I/O wrappers that fetch plain objects from Supabase, call the
+ * pure function, and write the results back.
  */
 
 // ---------------------------------------------------------------------------
@@ -58,6 +59,16 @@ export function addDaysIso(date: string, days: number): string {
   return parsed.toISOString().slice(0, 10)
 }
 
+/** Whole days from `from` to `to` (positive if `to` is later), using the
+ * same UTC arithmetic as addDaysIso so the two are exact inverses. */
+export function diffDaysIso(from: string, to: string): number {
+  const [fy, fm, fd] = from.split('-').map(Number)
+  const [ty, tm, td] = to.split('-').map(Number)
+  const fromUtc = Date.UTC(fy, fm - 1, fd)
+  const toUtc = Date.UTC(ty, tm - 1, td)
+  return Math.round((toUtc - fromUtc) / 86_400_000)
+}
+
 /**
  * Breadth-first relaxation over the dependency DAG. Given a set of tasks
  * whose `current_planned_end` just changed (`seeds`), propagates the
@@ -74,7 +85,7 @@ export function addDaysIso(date: string, days: number): string {
  *
  * Two distinct relaxation rules, chosen by `mode`:
  *
- * - 'push' (a task slipped / was missed): for each dependent D of a task
+ * - 'push' (a task slipped / was delayed): for each dependent D of a task
  *   T that just moved, `required_start = T.currentEnd + lag`. D only
  *   moves if `required_start > D.currentStart` — checked against D's
  *   CURRENT start, not a max over all of D's predecessors. That's
@@ -207,6 +218,14 @@ type DependencyEdgeRow = {
   lag_days: number
 }
 
+export type ChangeReason =
+  | 'delayed_end'
+  | 'delayed_start'
+  | 'confirmed_start'
+  | 'early_finish'
+  | 'manual_override'
+  | 'excel_reimport'
+
 type RevisionInsert = {
   task_id: string
   schedule_version_id: string
@@ -214,7 +233,7 @@ type RevisionInsert = {
   previous_end: string
   new_start: string
   new_end: string
-  change_reason: 'missed_target' | 'early_finish'
+  change_reason: ChangeReason
   trigger_project_log_id: string | null
   miss_reason: string | null
 }
@@ -284,7 +303,7 @@ function buildRevisions(
   changes: CascadeChange[],
   originalState: Map<string, TaskState>,
   versionId: string,
-  changeReason: 'missed_target' | 'early_finish',
+  changeReason: ChangeReason,
   triggerProjectLogId: string | null,
   missReason: string | null,
 ): { revisions: RevisionInsert[]; finalByTask: Map<string, CascadeChange> } {
@@ -414,38 +433,42 @@ async function snapshotVersion(
 }
 
 /**
- * Marks one or more tasks missed and cascades the resulting slip forward
- * through the dependency graph. `missedTaskIds` should be batched into a
- * single call for everything confirmed missed in one run (a log with
- * several unticked boxes, or one sweep finding several overdue tasks) —
- * that produces one combined schedule version rather than one per task.
+ * Marks one or more already-started tasks delayed-to-finish and cascades
+ * the resulting slip forward through the dependency graph.
+ * `delayedTaskIds` should be batched into a single call for everything
+ * confirmed delayed in one run (a log with several unticked boxes, or
+ * one sweep finding several overdue tasks) — that produces one combined
+ * schedule version rather than one per task.
  *
- * `current_planned_start` is never touched here: by the time a task can
- * be checked as missed, start <= end <= today already holds, so there's
- * no way to distinguish "started late" from "never started" — matching
- * the schema's deliberate omission of an `in_progress` status.
+ * `current_planned_start` is never touched here — only a task that has
+ * genuinely started (`actual_start` set) is eligible for this check at
+ * all (spec §12, "Delayed: Start and Delayed: End" — mutual exclusivity),
+ * so there's no ambiguity to resolve about when it began. `duration_days`
+ * grows by the same +1 the end moves, so it always stays equal to
+ * `current_planned_end - current_planned_start` for a task that's
+ * actually running long (spec §12, "Duration is dynamic").
  */
-export async function applyMissedTargets({
+export async function applyDelayedEnds({
   supabase,
   projectId,
-  missedTaskIds,
+  delayedTaskIds,
   triggerProjectLogId,
   missReason,
 }: {
   supabase: SupabaseClient
   projectId: string
-  missedTaskIds: string[]
+  delayedTaskIds: string[]
   triggerProjectLogId: string | null
   missReason: string | null
 }): Promise<PropagationOutcome> {
-  if (missedTaskIds.length === 0) {
+  if (delayedTaskIds.length === 0) {
     return { success: true, versionNumber: null, tasksChanged: 0 }
   }
 
   const { data: rootRows, error: rootFetchError } = await supabase
     .from('schedule_tasks')
     .select('id, current_planned_start, current_planned_end, duration_days')
-    .in('id', missedTaskIds)
+    .in('id', delayedTaskIds)
 
   if (rootFetchError) {
     return { success: false, error: rootFetchError.message }
@@ -472,7 +495,10 @@ export async function applyMissedTargets({
 
     const { error: updateError } = await supabase
       .from('schedule_tasks')
-      .update({ current_planned_end: newEnd, status: 'missed' })
+      .update({
+        current_planned_end: newEnd,
+        duration_days: root.duration_days + 1,
+      })
       .eq('id', root.id)
 
     if (updateError) {
@@ -493,7 +519,7 @@ export async function applyMissedTargets({
   const version = await createPropagationVersion(
     supabase,
     projectId,
-    `Missed: ${missedTaskIds.length} target(s)`,
+    `Delayed: ${delayedTaskIds.length} target(s)`,
   )
   if (!version.ok) {
     return { success: false, error: version.error }
@@ -503,7 +529,7 @@ export async function applyMissedTargets({
     cascadeChanges,
     originalState,
     version.id,
-    'missed_target',
+    'delayed_end',
     triggerProjectLogId,
     missReason,
   )
@@ -515,7 +541,294 @@ export async function applyMissedTargets({
     previous_end: root.current_planned_end,
     new_start: root.current_planned_start,
     new_end: addDaysIso(root.current_planned_end, 1),
-    change_reason: 'missed_target',
+    change_reason: 'delayed_end',
+    trigger_project_log_id: triggerProjectLogId,
+    miss_reason: missReason,
+  }))
+
+  for (const [taskId, change] of finalByTask) {
+    const { error: updateError } = await supabase
+      .from('schedule_tasks')
+      .update({
+        current_planned_start: change.newStart,
+        current_planned_end: change.newEnd,
+      })
+      .eq('id', taskId)
+
+    if (updateError) {
+      return { success: false, error: updateError.message }
+    }
+  }
+
+  const allRevisions = [...rootRevisions, ...cascadeRevisions]
+  if (allRevisions.length > 0) {
+    const { error: revisionsError } = await supabase
+      .from('schedule_task_revisions')
+      .insert(allRevisions)
+    if (revisionsError) {
+      return { success: false, error: revisionsError.message }
+    }
+  }
+
+  const snapshot = await snapshotVersion(supabase, projectId, version.id)
+  if (!snapshot.ok) {
+    return { success: false, error: snapshot.error }
+  }
+
+  return {
+    success: true,
+    versionNumber: version.versionNumber,
+    tasksChanged: rootTasks.length + finalByTask.size,
+  }
+}
+
+/**
+ * Marks one or more not-yet-started tasks confirmed-started — from the
+ * morning form's dedicated start checklist, or the manual-override
+ * fallback (spec §12 open question (j), which reuses this same function
+ * with `changeReason: 'manual_override'` instead of the default). Writes
+ * `actual_start`, recomputes `current_planned_end` as
+ * `confirmedDate + duration_days`, and cascades the result forward
+ * exactly like applyDelayedEnds does. A confirmed start can never land
+ * earlier than what cascade math already computed — eligibility requires
+ * the predecessor already done, which is exactly what that math keys off
+ * — so seeding the same push-mode computeCascade pass is always safe;
+ * this never needs a pull.
+ */
+export async function applyConfirmedStarts({
+  supabase,
+  projectId,
+  confirmedTaskIds,
+  confirmedDate,
+  triggerProjectLogId,
+  changeReason = 'confirmed_start',
+}: {
+  supabase: SupabaseClient
+  projectId: string
+  confirmedTaskIds: string[]
+  confirmedDate: string
+  triggerProjectLogId: string | null
+  changeReason?: ChangeReason
+}): Promise<PropagationOutcome> {
+  if (confirmedTaskIds.length === 0) {
+    return { success: true, versionNumber: null, tasksChanged: 0 }
+  }
+
+  const { data: rootRows, error: rootFetchError } = await supabase
+    .from('schedule_tasks')
+    .select('id, current_planned_start, current_planned_end, duration_days')
+    .in('id', confirmedTaskIds)
+
+  if (rootFetchError) {
+    return { success: false, error: rootFetchError.message }
+  }
+
+  const rootTasks = (rootRows ?? []) as ScheduleTaskRow[]
+  if (rootTasks.length === 0) {
+    return { success: true, versionNumber: null, tasksChanged: 0 }
+  }
+
+  const graph = await fetchProjectGraph(supabase, projectId)
+  if (!graph.ok) {
+    return { success: false, error: graph.error }
+  }
+  const originalState = graph.tasks
+
+  const seeds: CascadeSeed[] = []
+  for (const root of rootTasks) {
+    const newEnd = addDaysIso(confirmedDate, root.duration_days)
+
+    const { error: updateError } = await supabase
+      .from('schedule_tasks')
+      .update({
+        current_planned_start: confirmedDate,
+        current_planned_end: newEnd,
+        actual_start: confirmedDate,
+      })
+      .eq('id', root.id)
+
+    if (updateError) {
+      return { success: false, error: updateError.message }
+    }
+
+    seeds.push({ taskId: root.id, newEnd })
+  }
+
+  const cascadeChanges = computeCascade(
+    graph.tasks,
+    graph.edges,
+    seeds,
+    'push',
+    '', // today is unused in 'push' mode
+  )
+
+  const version = await createPropagationVersion(
+    supabase,
+    projectId,
+    `Confirmed start: ${confirmedTaskIds.length} task(s)`,
+  )
+  if (!version.ok) {
+    return { success: false, error: version.error }
+  }
+
+  const { revisions: cascadeRevisions, finalByTask } = buildRevisions(
+    cascadeChanges,
+    originalState,
+    version.id,
+    changeReason,
+    triggerProjectLogId,
+    null,
+  )
+
+  const rootRevisions: RevisionInsert[] = rootTasks.map((root) => ({
+    task_id: root.id,
+    schedule_version_id: version.id,
+    previous_start: root.current_planned_start,
+    previous_end: root.current_planned_end,
+    new_start: confirmedDate,
+    new_end: addDaysIso(confirmedDate, root.duration_days),
+    change_reason: changeReason,
+    trigger_project_log_id: triggerProjectLogId,
+    miss_reason: null,
+  }))
+
+  for (const [taskId, change] of finalByTask) {
+    const { error: updateError } = await supabase
+      .from('schedule_tasks')
+      .update({
+        current_planned_start: change.newStart,
+        current_planned_end: change.newEnd,
+      })
+      .eq('id', taskId)
+
+    if (updateError) {
+      return { success: false, error: updateError.message }
+    }
+  }
+
+  const allRevisions = [...rootRevisions, ...cascadeRevisions]
+  if (allRevisions.length > 0) {
+    const { error: revisionsError } = await supabase
+      .from('schedule_task_revisions')
+      .insert(allRevisions)
+    if (revisionsError) {
+      return { success: false, error: revisionsError.message }
+    }
+  }
+
+  const snapshot = await snapshotVersion(supabase, projectId, version.id)
+  if (!snapshot.ok) {
+    return { success: false, error: snapshot.error }
+  }
+
+  return {
+    success: true,
+    versionNumber: version.versionNumber,
+    tasksChanged: rootTasks.length + finalByTask.size,
+  }
+}
+
+/**
+ * Pushes one or more not-yet-started tasks' whole window — start AND end
+ * together — forward by +1 day: the start-checklist equivalent of
+ * applyDelayedEnds, for a task whose recommended start is due but wasn't
+ * ticked as started this check. `duration_days` is untouched — the task
+ * hasn't begun, so there's nothing to widen yet, only a date to slide
+ * later (spec §12, "Duration is dynamic" — contrast with the End-side
+ * push, which widens the window because the task has genuinely started
+ * and is now running long).
+ */
+export async function applyDelayedStarts({
+  supabase,
+  projectId,
+  delayedStartTaskIds,
+  triggerProjectLogId,
+  missReason,
+}: {
+  supabase: SupabaseClient
+  projectId: string
+  delayedStartTaskIds: string[]
+  triggerProjectLogId: string | null
+  missReason: string | null
+}): Promise<PropagationOutcome> {
+  if (delayedStartTaskIds.length === 0) {
+    return { success: true, versionNumber: null, tasksChanged: 0 }
+  }
+
+  const { data: rootRows, error: rootFetchError } = await supabase
+    .from('schedule_tasks')
+    .select('id, current_planned_start, current_planned_end, duration_days')
+    .in('id', delayedStartTaskIds)
+
+  if (rootFetchError) {
+    return { success: false, error: rootFetchError.message }
+  }
+
+  const rootTasks = (rootRows ?? []) as ScheduleTaskRow[]
+  if (rootTasks.length === 0) {
+    return { success: true, versionNumber: null, tasksChanged: 0 }
+  }
+
+  const graph = await fetchProjectGraph(supabase, projectId)
+  if (!graph.ok) {
+    return { success: false, error: graph.error }
+  }
+  const originalState = graph.tasks
+
+  const seeds: CascadeSeed[] = []
+  for (const root of rootTasks) {
+    const newStart = addDaysIso(root.current_planned_start, 1)
+    const newEnd = addDaysIso(root.current_planned_end, 1)
+
+    const { error: updateError } = await supabase
+      .from('schedule_tasks')
+      .update({
+        current_planned_start: newStart,
+        current_planned_end: newEnd,
+      })
+      .eq('id', root.id)
+
+    if (updateError) {
+      return { success: false, error: updateError.message }
+    }
+
+    seeds.push({ taskId: root.id, newEnd })
+  }
+
+  const cascadeChanges = computeCascade(
+    graph.tasks,
+    graph.edges,
+    seeds,
+    'push',
+    '', // today is unused in 'push' mode
+  )
+
+  const version = await createPropagationVersion(
+    supabase,
+    projectId,
+    `Delayed start: ${delayedStartTaskIds.length} task(s)`,
+  )
+  if (!version.ok) {
+    return { success: false, error: version.error }
+  }
+
+  const { revisions: cascadeRevisions, finalByTask } = buildRevisions(
+    cascadeChanges,
+    originalState,
+    version.id,
+    'delayed_start',
+    triggerProjectLogId,
+    missReason,
+  )
+
+  const rootRevisions: RevisionInsert[] = rootTasks.map((root) => ({
+    task_id: root.id,
+    schedule_version_id: version.id,
+    previous_start: root.current_planned_start,
+    previous_end: root.current_planned_end,
+    new_start: addDaysIso(root.current_planned_start, 1),
+    new_end: addDaysIso(root.current_planned_end, 1),
+    change_reason: 'delayed_start',
     trigger_project_log_id: triggerProjectLogId,
     miss_reason: missReason,
   }))
@@ -565,6 +878,14 @@ export async function applyMissedTargets({
  * isn't enough to decide that safely). On-time or late completions never
  * cascade — nothing about the plan's dates changed for them.
  *
+ * An early finish also shrinks `duration_days` by the same amount the end
+ * pulled in, symmetric with how a late finish grows it in applyDelayedEnds
+ * (spec §12 open question (f), resolved in favor of symmetric handling).
+ * Neither form can report a completion before its own deadline is due
+ * (spec §12), so this path is dead in practice under real form usage —
+ * kept correct anyway for whenever the manual-override fallback exercises
+ * it.
+ *
  * All early-finish cascades from this call are batched into a single
  * schedule version. If none of the completions were early, tasks are
  * still updated but no version is created, since nothing about the plan
@@ -607,12 +928,17 @@ export async function applyTaskCompletions({
     if (!row) continue
 
     const isEarly = completion.actualEnd < row.current_planned_end
-    const update: Record<string, string> = {
+    const update: Record<string, string | number> = {
       status: 'done',
       actual_end: completion.actualEnd,
     }
     if (isEarly) {
       update.current_planned_end = completion.actualEnd
+      const shrinkDays = diffDaysIso(
+        completion.actualEnd,
+        row.current_planned_end,
+      )
+      update.duration_days = row.duration_days - shrinkDays
     }
 
     const { error: updateError } = await supabase

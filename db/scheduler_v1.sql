@@ -18,12 +18,22 @@
 --   schedule_task_revisions  append-only audit trail — "who slipped and
 --                            why", one row per date change
 --   schedule_imports         record of each uploaded spreadsheet
+--   schedule_ingestion_flags append-only anomaly log — ingestion-time
+--                            issues that were rejected rather than
+--                            applied (e.g. a start confirmed before its
+--                            predecessor was done), not a date change so
+--                            not a schedule_task_revisions row
 --
--- status is pending | done | missed | retired. in_progress is NOT a
--- stored value (Decision 6) — it's derived on read as
--- current_planned_start <= today <= current_planned_end and status not
--- in ('done', 'missed', 'retired'). Nothing ever writes actual_start;
--- it's reserved for a future manual entry only.
+-- status is pending | done | retired — the three states that correspond
+-- to an actual one-time write event (import, confirmed-done, re-import
+-- drop). Everything else (in progress, delayed — start, delayed — end)
+-- is derived at read time from current_planned_start/end, actual_start,
+-- and today (spec §12, "Status: derive it, don't store it" — open
+-- question (e), resolved in favor of collapsing). Nothing is ever
+-- written to represent "this is currently delayed" — that's the whole
+-- point: it can't go stale the way a stored label could if some future
+-- code path moved a task's dates without also updating the word
+-- describing it.
 --
 -- This script is idempotent and safe to re-run.
 
@@ -54,20 +64,84 @@ create table if not exists public.schedule_tasks (
   duration_days int not null check (duration_days > 0),
   actual_start date,
   actual_end date,
-  status text not null default 'pending' check (status in ('pending', 'done', 'missed', 'retired')),
+  status text not null default 'pending' check (status in ('pending', 'done', 'retired')),
   created_in_version_id uuid references public.schedule_versions (id) on delete set null,
   created_at timestamptz not null default now(),
   check (original_planned_start <= original_planned_end),
   check (current_planned_start <= current_planned_end)
 );
 
+-- Rename the 'missed' status to 'delayed' — a task that's overdue but
+-- still recoverable via cascade, not permanently lost. Drop the old
+-- check constraint (looked up dynamically, since its auto-generated name
+-- shouldn't be hardcoded) before the data migration, since the old
+-- constraint doesn't allow 'delayed' yet.
+do $$
+declare
+  found_constraint text;
+begin
+  select con.conname into found_constraint
+  from pg_constraint con
+  join pg_class rel on rel.oid = con.conrelid
+  join pg_namespace nsp on nsp.oid = rel.relnamespace
+  where nsp.nspname = 'public'
+    and rel.relname = 'schedule_tasks'
+    and con.contype = 'c'
+    and pg_get_constraintdef(con.oid) like '%status%pending%';
+
+  if found_constraint is not null then
+    execute format('alter table public.schedule_tasks drop constraint %I', found_constraint);
+  end if;
+end $$;
+
+update public.schedule_tasks set status = 'delayed' where status = 'missed';
+
+alter table public.schedule_tasks
+  add constraint schedule_tasks_status_check
+  check (status in ('pending', 'done', 'delayed', 'retired'));
+
+-- Collapse 'delayed' out of the stored enum entirely (spec §12 open
+-- question (e), resolved in favor of deriving it). A stored 'delayed'
+-- task is, structurally, just a 'pending' one whose dates say it's
+-- overdue — the distinction is now computed at read time, never stored.
+-- Same dynamic-lookup-and-drop pattern as the rename above, run a second
+-- time against whatever constraint the previous step just installed.
+do $$
+declare
+  found_constraint text;
+begin
+  select con.conname into found_constraint
+  from pg_constraint con
+  join pg_class rel on rel.oid = con.conrelid
+  join pg_namespace nsp on nsp.oid = rel.relnamespace
+  where nsp.nspname = 'public'
+    and rel.relname = 'schedule_tasks'
+    and con.contype = 'c'
+    and pg_get_constraintdef(con.oid) like '%status%pending%';
+
+  if found_constraint is not null then
+    execute format('alter table public.schedule_tasks drop constraint %I', found_constraint);
+  end if;
+end $$;
+
+update public.schedule_tasks set status = 'pending' where status = 'delayed';
+
+alter table public.schedule_tasks
+  add constraint schedule_tasks_status_check
+  check (status in ('pending', 'done', 'retired'));
+
 create unique index if not exists schedule_tasks_project_external_ref_unique
   on public.schedule_tasks (project_id, external_ref)
   where external_ref is not null;
 
+-- Recreate the deadline index without a status predicate at all —
+-- 'delayed' is no longer a real column value to filter on, and every
+-- non-final task (in progress, delayed-start, delayed-end included) is
+-- simply 'pending' in storage now.
+drop index if exists public.schedule_tasks_project_deadline_idx;
 create index if not exists schedule_tasks_project_deadline_idx
   on public.schedule_tasks (project_id, current_planned_end)
-  where status in ('pending', 'missed');
+  where status = 'pending';
 
 create index if not exists schedule_tasks_site_id_idx
   on public.schedule_tasks (site_id);
@@ -110,11 +184,70 @@ create table if not exists public.schedule_task_revisions (
   previous_end date not null,
   new_start date not null,
   new_end date not null,
-  change_reason text not null check (change_reason in ('missed_target', 'early_finish', 'manual_override', 'excel_reimport')),
+  change_reason text not null check (change_reason in ('delayed_end', 'delayed_start', 'confirmed_start', 'early_finish', 'manual_override', 'excel_reimport')),
   trigger_project_log_id uuid references public.project_logs (id) on delete set null,
   miss_reason text,
   created_at timestamptz not null default now()
 );
+
+-- Same rename as schedule_tasks.status above, applied to the audit trail's
+-- own reason enum.
+do $$
+declare
+  found_constraint text;
+begin
+  select con.conname into found_constraint
+  from pg_constraint con
+  join pg_class rel on rel.oid = con.conrelid
+  join pg_namespace nsp on nsp.oid = rel.relnamespace
+  where nsp.nspname = 'public'
+    and rel.relname = 'schedule_task_revisions'
+    and con.contype = 'c'
+    and pg_get_constraintdef(con.oid) like '%change_reason%';
+
+  if found_constraint is not null then
+    execute format('alter table public.schedule_task_revisions drop constraint %I', found_constraint);
+  end if;
+end $$;
+
+update public.schedule_task_revisions
+  set change_reason = 'delayed_target'
+  where change_reason = 'missed_target';
+
+alter table public.schedule_task_revisions
+  add constraint schedule_task_revisions_change_reason_check
+  check (change_reason in ('delayed_target', 'early_finish', 'manual_override', 'excel_reimport'));
+
+-- §12: 'delayed_target' really only ever meant "delayed the end" — rename
+-- it to 'delayed_end' for consistency with the new Start/End split, and
+-- add 'delayed_start' (the start-side +1 push) and 'confirmed_start'
+-- (actual_start genuinely written, by either the morning trigger or the
+-- manual-override fallback). Same dynamic-lookup-and-drop pattern again.
+do $$
+declare
+  found_constraint text;
+begin
+  select con.conname into found_constraint
+  from pg_constraint con
+  join pg_class rel on rel.oid = con.conrelid
+  join pg_namespace nsp on nsp.oid = rel.relnamespace
+  where nsp.nspname = 'public'
+    and rel.relname = 'schedule_task_revisions'
+    and con.contype = 'c'
+    and pg_get_constraintdef(con.oid) like '%change_reason%';
+
+  if found_constraint is not null then
+    execute format('alter table public.schedule_task_revisions drop constraint %I', found_constraint);
+  end if;
+end $$;
+
+update public.schedule_task_revisions
+  set change_reason = 'delayed_end'
+  where change_reason = 'delayed_target';
+
+alter table public.schedule_task_revisions
+  add constraint schedule_task_revisions_change_reason_check
+  check (change_reason in ('delayed_end', 'delayed_start', 'confirmed_start', 'early_finish', 'manual_override', 'excel_reimport'));
 
 create index if not exists schedule_task_revisions_task_created_idx
   on public.schedule_task_revisions (task_id, created_at desc);
@@ -144,6 +277,40 @@ alter table public.schedule_imports
 create index if not exists schedule_imports_project_id_idx
   on public.schedule_imports (project_id);
 
+-- §12: the morning form gains a second, independent checklist alongside
+-- the existing targets_selected_json ("what do you expect to finish
+-- today") — this one asks "have these, whose recommended start is due,
+-- actually started?" project_logs itself is a bootstrap_v1.sql table,
+-- but this column only exists to support the scheduler, so it's altered
+-- here rather than there.
+alter table public.project_logs
+  add column if not exists starts_confirmed_json jsonb;
+
+-- Anomalies caught at ingestion time that don't represent a date change
+-- (so don't belong in schedule_task_revisions) but still need a permanent
+-- record — e.g. a morning-form start confirmation for a task whose
+-- predecessors weren't actually done yet, or an evening-form completion
+-- tick for a task that was never confirmed started in the first place.
+-- Both are rejected rather than applied, but recorded so neither is just
+-- a Vercel log line that scrolls away. flag_type is an enum, not free
+-- text, so it's ready to hold future anomaly kinds without another
+-- migration.
+create table if not exists public.schedule_ingestion_flags (
+  id uuid primary key default gen_random_uuid(),
+  project_id uuid not null references public.projects (id) on delete cascade,
+  task_id uuid references public.schedule_tasks (id) on delete cascade,
+  project_log_id uuid references public.project_logs (id) on delete set null,
+  flag_type text not null check (flag_type in ('start_confirmed_before_predecessor_done', 'target_ticked_before_confirmed_start')),
+  detail text,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists schedule_ingestion_flags_project_created_idx
+  on public.schedule_ingestion_flags (project_id, created_at desc);
+
+create index if not exists schedule_ingestion_flags_task_id_idx
+  on public.schedule_ingestion_flags (task_id);
+
 -- Row Level Security — same wide-open authenticated policy as every
 -- existing table (single-operator model; see db/bootstrap_v1.sql).
 alter table public.schedule_versions enable row level security;
@@ -152,6 +319,7 @@ alter table public.schedule_task_dependencies enable row level security;
 alter table public.schedule_version_tasks enable row level security;
 alter table public.schedule_task_revisions enable row level security;
 alter table public.schedule_imports enable row level security;
+alter table public.schedule_ingestion_flags enable row level security;
 
 drop policy if exists "authenticated_read_schedule_versions" on public.schedule_versions;
 drop policy if exists "authenticated_insert_schedule_versions" on public.schedule_versions;
@@ -300,5 +468,30 @@ create policy "authenticated_update_schedule_imports"
 
 create policy "authenticated_delete_schedule_imports"
   on public.schedule_imports for delete
+  to authenticated
+  using (true);
+
+drop policy if exists "authenticated_read_schedule_ingestion_flags" on public.schedule_ingestion_flags;
+drop policy if exists "authenticated_insert_schedule_ingestion_flags" on public.schedule_ingestion_flags;
+drop policy if exists "authenticated_update_schedule_ingestion_flags" on public.schedule_ingestion_flags;
+drop policy if exists "authenticated_delete_schedule_ingestion_flags" on public.schedule_ingestion_flags;
+
+create policy "authenticated_read_schedule_ingestion_flags"
+  on public.schedule_ingestion_flags for select
+  to authenticated
+  using (true);
+
+create policy "authenticated_insert_schedule_ingestion_flags"
+  on public.schedule_ingestion_flags for insert
+  to authenticated
+  with check (true);
+
+create policy "authenticated_update_schedule_ingestion_flags"
+  on public.schedule_ingestion_flags for update
+  to authenticated
+  using (true);
+
+create policy "authenticated_delete_schedule_ingestion_flags"
+  on public.schedule_ingestion_flags for delete
   to authenticated
   using (true);
