@@ -13,7 +13,12 @@ import {
 } from '@/app/protected/project-form'
 import { parseScheduleWorkbook } from '@/utils/scheduler/parse-excel'
 import { importSchedule } from '@/utils/scheduler/import-schedule'
-import { ingestFormSubmission } from '@/utils/scheduler/ingest-submission'
+import {
+  ingestFormSubmission,
+  recordIngestionFlags,
+} from '@/utils/scheduler/ingest-submission'
+import { applyConfirmedStarts } from '@/utils/scheduler/propagate'
+import { filterEligibleCandidates } from '@/utils/scheduler/gating'
 import type { ParseResult } from '@/utils/scheduler/types'
 
 export type ImportScheduleResult =
@@ -21,6 +26,10 @@ export type ImportScheduleResult =
   | { success: false; error: string }
 
 export type SubmitTestLogResult =
+  | { success: true; message: string }
+  | { success: false; error: string }
+
+export type ConfirmTaskStartResult =
   | { success: true; message: string }
   | { success: false; error: string }
 
@@ -308,6 +317,9 @@ export async function submitTestLogAction(
   const achievedRefs = formData
     .getAll('achieved_task_ref')
     .map((v) => v.toString())
+  const startedRefs = formData
+    .getAll('started_task_ref')
+    .map((v) => v.toString())
 
   const admin = createAdminClient()
 
@@ -325,12 +337,14 @@ export async function submitTestLogAction(
     submittedAt: `${fakeDate}T12:00:00.000Z`,
     formValues: {
       targets_achieved: achievedRefs,
+      starts_confirmed: startedRefs,
       free_notes: 'Submitted via the date-override testing console.',
     },
     sourcePayload: {
       test_console: true,
       fake_date: fakeDate,
       achieved_task_refs: achievedRefs,
+      started_task_refs: startedRefs,
     },
     source: 'manual',
   })
@@ -345,5 +359,122 @@ export async function submitTestLogAction(
   return {
     success: true,
     message: `Simulated ${shift} submission for ${fakeDate} (log_date resolved to ${result.logDate}). Refresh the project's scheduler view to see the effect.`,
+  }
+}
+
+/**
+ * Manual fallback for confirming a task's start independent of the
+ * Google Form entirely (spec §12 open question (j)) — for the case a
+ * morning form was never submitted at all, leaving a task stuck at
+ * Delayed:Start with no automatic way out. Explicitly a catch-up tool:
+ * the operator picks the date the work actually started, which can be
+ * backdated ("actually started Monday, nobody submitted the form").
+ *
+ * Same eligibility gate as the automated morning trigger applies — this
+ * does not bypass open question (b)'s predecessor check. A confirm
+ * attempt for a task whose predecessors aren't all done is rejected and
+ * flagged exactly like an invalid tick coming through the real form,
+ * not silently allowed just because a human clicked the button. Whether
+ * an operator should eventually be able to force past that gate with an
+ * explicit override is a separate, smaller open question, not resolved
+ * here.
+ *
+ * Reuses applyConfirmedStarts — the exact same function the morning
+ * trigger calls — with change_reason: 'manual_override' instead of the
+ * default 'confirmed_start', so the audit trail distinguishes a
+ * form-driven confirmation from a human-initiated one.
+ */
+export async function confirmTaskStartAction(
+  _prev: ConfirmTaskStartResult | null,
+  formData: FormData,
+): Promise<ConfirmTaskStartResult> {
+  const auth = await getAuthenticatedUserId()
+  if ('error' in auth) {
+    return { success: false, error: auth.error }
+  }
+
+  const taskId = formData.get('task_id')?.toString().trim()
+  const projectId = formData.get('project_id')?.toString().trim()
+  if (!taskId || !projectId) {
+    return { success: false, error: 'Task and project are required.' }
+  }
+
+  const startDate = formData.get('start_date')?.toString().trim()
+  if (!startDate || !/^\d{4}-\d{2}-\d{2}$/.test(startDate)) {
+    return {
+      success: false,
+      error: 'A valid start date (YYYY-MM-DD) is required.',
+    }
+  }
+
+  const admin = createAdminClient()
+
+  const { data: task, error: taskError } = await admin
+    .from('schedule_tasks')
+    .select('id, project_id, status, actual_start')
+    .eq('id', taskId)
+    .maybeSingle()
+
+  if (taskError || !task || task.project_id !== projectId) {
+    return { success: false, error: 'Task not found.' }
+  }
+
+  if (task.status !== 'pending') {
+    return {
+      success: false,
+      error: `Only a pending task can be confirmed started (this one is ${task.status}).`,
+    }
+  }
+
+  if (task.actual_start) {
+    return {
+      success: false,
+      error: `Already confirmed started on ${task.actual_start}.`,
+    }
+  }
+
+  const gate = await filterEligibleCandidates(admin, [taskId])
+  if (!gate.ok) {
+    return { success: false, error: gate.error }
+  }
+
+  if (!gate.eligibleTaskIds.has(taskId)) {
+    await recordIngestionFlags(
+      admin,
+      projectId,
+      null,
+      'start_confirmed_before_predecessor_done',
+      [
+        {
+          taskId,
+          detail: `Manually confirmed started on ${startDate} by an operator, but a predecessor wasn't done yet.`,
+        },
+      ],
+    )
+    return {
+      success: false,
+      error:
+        "This task's predecessors aren't all done yet — can't confirm a start ahead of them. Flagged for the record.",
+    }
+  }
+
+  const outcome = await applyConfirmedStarts({
+    supabase: admin,
+    projectId,
+    confirmedTaskIds: [taskId],
+    confirmedDate: startDate,
+    triggerProjectLogId: null,
+    changeReason: 'manual_override',
+  })
+
+  if (!outcome.success) {
+    return { success: false, error: outcome.error }
+  }
+
+  revalidatePath(`/protected/projects/${projectId}/scheduler`)
+
+  return {
+    success: true,
+    message: `Confirmed started on ${startDate}. ${outcome.tasksChanged} task(s) updated.`,
   }
 }

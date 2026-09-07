@@ -12,7 +12,9 @@ type TaskRow = {
   external_ref: string | null
   name: string
   status: string
+  current_planned_start: string
   current_planned_end: string
+  actual_start: string | null
 }
 
 export default async function SchedulerTestConsolePage() {
@@ -29,8 +31,10 @@ export default async function SchedulerTestConsolePage() {
       .order('name', { ascending: true }),
     supabase
       .from('schedule_tasks')
-      .select('id, project_id, external_ref, name, status, current_planned_end')
-      .in('status', ['pending', 'missed'])
+      .select(
+        'id, project_id, external_ref, name, status, current_planned_start, current_planned_end, actual_start',
+      )
+      .eq('status', 'pending')
       .order('current_planned_end', { ascending: true }),
   ])
 
@@ -48,11 +52,14 @@ export default async function SchedulerTestConsolePage() {
             </span>
           </CardTitle>
           <p className="text-muted-foreground text-sm">
-            Simulates an evening Google Forms submission for a fake date,
-            through the exact same ingestion and propagation code the real
-            webhook uses (spec §11 item 2) — nothing here is a separate,
-            test-only code path. Use it to check how the schedule reacts N
-            refreshes from now without waiting for real time to pass.
+            Simulates a morning or evening Google Forms submission for a fake
+            date, through the exact same ingestion and propagation code the real
+            webhook uses (spec §11 item 2 / §12) — nothing here is a separate,
+            test-only code path. Morning simulates the dedicated start checklist
+            (confirms a start, or pushes it +1 day if left unticked); evening
+            simulates the deadline checklist (achieved, or delayed-end). Use it
+            to check how the schedule reacts N refreshes from now without
+            waiting for real time to pass.
           </p>
         </CardHeader>
         <CardContent>

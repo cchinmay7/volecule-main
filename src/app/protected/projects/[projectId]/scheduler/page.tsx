@@ -6,6 +6,12 @@ import { createClient } from '@/supabase/server'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import {
+  arePredecessorsDone,
+  deriveTaskStatus,
+  type DerivedStatus,
+} from '@/utils/scheduler/derive-status'
+import { ConfirmStartForm } from './confirm-start-form'
 
 type ProjectRow = {
   id: string
@@ -18,12 +24,13 @@ type ScheduleTaskRow = {
   external_ref: string | null
   name: string
   vendor_team: string | null
-  status: string
+  status: 'pending' | 'done' | 'retired'
   original_planned_start: string
   original_planned_end: string
   current_planned_start: string
   current_planned_end: string
   duration_days: number
+  actual_start: string | null
 }
 
 type DependencyEdgeRow = {
@@ -55,48 +62,14 @@ function toLocalDateString(date: Date, timezone: string): string {
   return date.toISOString().slice(0, 10)
 }
 
-// Derived, never stored — a stored task can only be pending/done/missed/
-// retired. "In progress" is purely a display label for a pending task.
-//
-// A task with predecessors is gated on them alone (spec §11 item 1/1b):
-// it's in_progress once every direct predecessor is done, regardless of
-// its own current_planned_start — that's what lets a pulled-forward
-// successor read as active the evening its predecessor finishes, a full
-// day before its own recomputed start date arrives on the calendar. A
-// root task (no predecessors) has no such signal to read, so it falls
-// back to the date-window check. This is an OR between two
-// mutually-exclusive branches, not an AND — ANDing "predecessors done"
-// onto the date check would make a root task (vacuously "all zero
-// predecessors done") permanently in_progress from day one.
-function displayStatus(
-  task: ScheduleTaskRow,
-  today: string,
-  predecessorStatusesByTaskId: Map<string, string[]>,
-): string {
-  if (task.status !== 'pending') return task.status
-
-  const predecessorStatuses = predecessorStatusesByTaskId.get(task.id)
-  if (predecessorStatuses && predecessorStatuses.length > 0) {
-    const allPredecessorsDone = predecessorStatuses.every((s) => s === 'done')
-    return allPredecessorsDone ? 'in_progress' : task.status
-  }
-
-  if (
-    task.current_planned_start <= today &&
-    today <= task.current_planned_end
-  ) {
-    return 'in_progress'
-  }
-  return task.status
-}
-
 function statusVariant(
-  status: string,
+  status: DerivedStatus,
 ): 'default' | 'secondary' | 'destructive' | 'outline' {
   switch (status) {
     case 'done':
       return 'default'
-    case 'missed':
+    case 'delayed_start':
+    case 'delayed_end':
       return 'destructive'
     case 'in_progress':
       return 'secondary'
@@ -136,7 +109,7 @@ export default async function ProjectSchedulerPage({
     supabase
       .from('schedule_tasks')
       .select(
-        'id, external_ref, name, vendor_team, status, original_planned_start, original_planned_end, current_planned_start, current_planned_end, duration_days',
+        'id, external_ref, name, vendor_team, status, original_planned_start, original_planned_end, current_planned_start, current_planned_end, duration_days, actual_start',
       )
       .eq('project_id', projectId)
       .order('current_planned_start', { ascending: true }),
@@ -169,13 +142,29 @@ export default async function ProjectSchedulerPage({
     predecessorStatusesByTaskId.set(edge.task_id, list)
   }
 
+  const derivedStatusByTaskId = new Map<string, DerivedStatus>(
+    tasks.map((task) => [
+      task.id,
+      deriveTaskStatus(
+        {
+          status: task.status,
+          currentPlannedStart: task.current_planned_start,
+          currentPlannedEnd: task.current_planned_end,
+          actualStart: task.actual_start,
+        },
+        arePredecessorsDone(predecessorStatusesByTaskId.get(task.id) ?? []),
+        today,
+      ),
+    ]),
+  )
+
   const counts = tasks.reduce(
     (acc, task) => {
-      const status = displayStatus(task, today, predecessorStatusesByTaskId)
+      const status = derivedStatusByTaskId.get(task.id) as DerivedStatus
       acc[status] = (acc[status] ?? 0) + 1
       return acc
     },
-    {} as Record<string, number>,
+    {} as Partial<Record<DerivedStatus, number>>,
   )
 
   return (
@@ -200,11 +189,13 @@ export default async function ProjectSchedulerPage({
             </div>
             <div className="flex flex-wrap gap-2">
               <Badge variant="outline">{tasks.length} tasks</Badge>
-              {Object.entries(counts).map(([status, count]) => (
-                <Badge key={status} variant={statusVariant(status)}>
-                  {status.replace('_', ' ')}: {count}
-                </Badge>
-              ))}
+              {(Object.entries(counts) as [DerivedStatus, number][]).map(
+                ([status, count]) => (
+                  <Badge key={status} variant={statusVariant(status)}>
+                    {status.replace('_', ' ')}: {count}
+                  </Badge>
+                ),
+              )}
             </div>
           </div>
         </CardHeader>
@@ -228,17 +219,20 @@ export default async function ProjectSchedulerPage({
                     <th className="py-2 pr-3 font-medium">Baseline</th>
                     <th className="py-2 pr-3 font-medium">Current</th>
                     <th className="py-2 pr-3 font-medium">Duration</th>
+                    <th className="py-2 pr-3 font-medium">
+                      <span className="sr-only">Actions</span>
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
                   {tasks.map((task) => {
-                    const status = displayStatus(
-                      task,
-                      today,
-                      predecessorStatusesByTaskId,
-                    )
+                    const status = derivedStatusByTaskId.get(
+                      task.id,
+                    ) as DerivedStatus
                     const slipped =
                       task.current_planned_end !== task.original_planned_end
+                    const needsStartConfirmation =
+                      task.status === 'pending' && task.actual_start === null
 
                     return (
                       <tr key={task.id} className="border-b last:border-0">
@@ -274,6 +268,15 @@ export default async function ProjectSchedulerPage({
                         </td>
                         <td className="py-2 pr-3 whitespace-nowrap">
                           {task.duration_days}d
+                        </td>
+                        <td className="py-2 pr-3 text-right whitespace-nowrap">
+                          {needsStartConfirmation && (
+                            <ConfirmStartForm
+                              projectId={projectId}
+                              taskId={task.id}
+                              defaultDate={today}
+                            />
+                          )}
                         </td>
                       </tr>
                     )

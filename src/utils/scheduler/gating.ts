@@ -1,11 +1,12 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { arePredecessorsDone } from '@/utils/scheduler/derive-status'
 
 /**
  * A task that isn't genuinely in progress (predecessors not all done)
  * must never be touched by form-driven processing, in either direction —
  * regardless of what the submitted payload says about it (spec §11 item
  * 1d). Ticking a blocked task's box shouldn't mark it done, and a blocked
- * task whose own deadline has passed shouldn't be flagged missed
+ * task whose own deadline has passed shouldn't be flagged delayed
  * independently of the predecessor that's actually still open; its dates
  * only ever move via cascade from that predecessor.
  *
@@ -78,10 +79,10 @@ export async function filterEligibleCandidates(
       eligibleTaskIds.add(taskId)
       continue
     }
-    const allDone = predecessorIdsForTask.every(
-      (id) => predecessorStatusById.get(id) === 'done',
+    const predecessorStatuses = predecessorIdsForTask.map(
+      (id) => predecessorStatusById.get(id) ?? '',
     )
-    if (allDone) eligibleTaskIds.add(taskId)
+    if (arePredecessorsDone(predecessorStatuses)) eligibleTaskIds.add(taskId)
   }
 
   return { ok: true, eligibleTaskIds }

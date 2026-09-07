@@ -22,8 +22,14 @@ import { ingestFormSubmission } from '@/utils/scheduler/ingest-submission'
  *
  * Optional body fields (under form_values):
  *   headcount             — object/array
- *   targets_selected      — object/array
- *   targets_achieved      — object/array
+ *   targets_selected      — object/array (evening: deadline-due targets)
+ *   targets_achieved      — object/array (evening: which were achieved)
+ *   starts_confirmed      — object/array (morning: the dedicated start
+ *                           checklist, spec §12 — tasks whose recommended
+ *                           start is due, ticked if actually started;
+ *                           a separate question from targets_selected,
+ *                           which is deadline-scoped and was never a
+ *                           start signal)
  *   free_notes            — string
  *   escalate_to_volecule  — boolean, or a "yes"/"true"/"escalate" string
  *
