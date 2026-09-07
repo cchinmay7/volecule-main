@@ -872,22 +872,37 @@ export async function applyDelayedStarts({
 /**
  * Records one or more task completions. Every completion always updates
  * that task's status to 'done' and stamps `actual_end`, regardless of
- * timing. A completion that finished BEFORE its current planned end also
- * pulls its own `current_planned_end` forward and cascades the pull to
- * dependents (see computeCascade's 'pull' mode for why a single edge
- * isn't enough to decide that safely). On-time or late completions never
- * cascade — nothing about the plan's dates changed for them.
+ * timing.
  *
- * An early finish also shrinks `duration_days` by the same amount the end
- * pulled in, symmetric with how a late finish grows it in applyDelayedEnds
- * (spec §12 open question (f), resolved in favor of symmetric handling).
- * Neither form can report a completion before its own deadline is due
- * (spec §12), so this path is dead in practice under real form usage —
- * kept correct anyway for whenever the manual-override fallback exercises
- * it.
+ * A completion is reconciled against the plan in whichever direction
+ * reality actually differs from it — not just early. Early was the only
+ * direction originally handled here, on the assumption that a late
+ * finish would already have been caught up to by daily applyDelayedEnds
+ * pushes (§06 step 6). That assumption only holds if a check genuinely
+ * ran every intervening day; with no refresh sweep built yet (§13 item
+ * C) and no guarantee a form is submitted daily, a gap of skipped days
+ * followed by an eventual late completion left current_planned_end
+ * stuck wherever the last real check landed — silently under-reporting
+ * the delay and never cascading it to dependents. Confirmed live: W2
+ * completed on the 21st against a current_planned_end of the 18th
+ * (a 3-day gap with no checks in between) read as neither early nor
+ * exactly on time, so nothing happened — W3 never moved.
  *
- * All early-finish cascades from this call are batched into a single
- * schedule version. If none of the completions were early, tasks are
+ * Both directions now reconcile current_planned_end to the true
+ * actual_end and cascade: early pulls dependents forward (pull mode —
+ * see computeCascade's 'pull' mode for why a single edge isn't enough to
+ * decide that safely) and shrinks duration_days; late pushes dependents
+ * later (push mode, the same relaxation applyDelayedEnds uses) and
+ * grows duration_days by the full caught-up gap in one step, rather than
+ * the usual +1-per-check. Exactly on time still needs neither.
+ *
+ * A batch can contain both early and late completions for different
+ * tasks. Late (push) is resolved first, then early (pull) against the
+ * post-push state — a push only ever moves things later, so resolving
+ * it first means a subsequent pull sees each predecessor's true,
+ * already-caught-up end rather than a stale one that might make an
+ * early pull look safe when it isn't. Both cascades are batched into one
+ * schedule version. If every completion was exactly on time, tasks are
  * still updated but no version is created, since nothing about the plan
  * changed.
  */
@@ -920,7 +935,8 @@ export async function applyTaskCompletions({
     ((rows ?? []) as ScheduleTaskRow[]).map((row) => [row.id, row]),
   )
 
-  const seeds: CascadeSeed[] = []
+  const earlySeeds: CascadeSeed[] = []
+  const lateSeeds: CascadeSeed[] = []
   let updatedCount = 0
 
   for (const completion of completions) {
@@ -928,6 +944,7 @@ export async function applyTaskCompletions({
     if (!row) continue
 
     const isEarly = completion.actualEnd < row.current_planned_end
+    const isLate = completion.actualEnd > row.current_planned_end
     const update: Record<string, string | number> = {
       status: 'done',
       actual_end: completion.actualEnd,
@@ -939,6 +956,13 @@ export async function applyTaskCompletions({
         row.current_planned_end,
       )
       update.duration_days = row.duration_days - shrinkDays
+    } else if (isLate) {
+      update.current_planned_end = completion.actualEnd
+      const growDays = diffDaysIso(
+        row.current_planned_end,
+        completion.actualEnd,
+      )
+      update.duration_days = row.duration_days + growDays
     }
 
     const { error: updateError } = await supabase
@@ -952,11 +976,19 @@ export async function applyTaskCompletions({
     updatedCount += 1
 
     if (isEarly) {
-      seeds.push({ taskId: completion.taskId, newEnd: completion.actualEnd })
+      earlySeeds.push({
+        taskId: completion.taskId,
+        newEnd: completion.actualEnd,
+      })
+    } else if (isLate) {
+      lateSeeds.push({
+        taskId: completion.taskId,
+        newEnd: completion.actualEnd,
+      })
     }
   }
 
-  if (seeds.length === 0) {
+  if (earlySeeds.length === 0 && lateSeeds.length === 0) {
     return { success: true, versionNumber: null, tasksChanged: updatedCount }
   }
 
@@ -966,31 +998,66 @@ export async function applyTaskCompletions({
   }
   const originalState = graph.tasks
 
-  const cascadeChanges = computeCascade(
-    graph.tasks,
-    graph.edges,
-    seeds,
-    'pull',
-    today,
-  )
+  const pushChanges =
+    lateSeeds.length > 0
+      ? computeCascade(graph.tasks, graph.edges, lateSeeds, 'push', '')
+      : []
+
+  // Fold push results into a working copy before running pull, so pull
+  // sees each predecessor's true, post-push state rather than the
+  // original one.
+  const stateAfterPush = new Map(graph.tasks)
+  for (const seed of lateSeeds) {
+    const current = stateAfterPush.get(seed.taskId)
+    if (current) {
+      stateAfterPush.set(seed.taskId, { ...current, currentEnd: seed.newEnd })
+    }
+  }
+  for (const change of pushChanges) {
+    stateAfterPush.set(change.taskId, {
+      ...(stateAfterPush.get(change.taskId) as TaskState),
+      currentStart: change.newStart,
+      currentEnd: change.newEnd,
+    })
+  }
+
+  const pullChanges =
+    earlySeeds.length > 0
+      ? computeCascade(stateAfterPush, graph.edges, earlySeeds, 'pull', today)
+      : []
 
   const version = await createPropagationVersion(
     supabase,
     projectId,
-    `Early finish: ${seeds.length} target(s)`,
+    `Completions: ${earlySeeds.length} early, ${lateSeeds.length} late (caught up)`,
   )
   if (!version.ok) {
     return { success: false, error: version.error }
   }
 
-  const { revisions, finalByTask } = buildRevisions(
-    cascadeChanges,
+  const { revisions: pushRevisions, finalByTask: pushFinal } = buildRevisions(
+    pushChanges,
     originalState,
+    version.id,
+    'delayed_end',
+    null,
+    null,
+  )
+  const { revisions: pullRevisions, finalByTask: pullFinal } = buildRevisions(
+    pullChanges,
+    stateAfterPush,
     version.id,
     'early_finish',
     null,
     null,
   )
+
+  // Merge with pull last: if the same dependent was touched by both
+  // passes (a diamond gated by one late and one early predecessor), the
+  // pull result is the authoritative final one — it was computed against
+  // the already-pushed state, not the stale pre-push one.
+  const finalByTask = new Map([...pushFinal, ...pullFinal])
+  const revisions = [...pushRevisions, ...pullRevisions]
 
   for (const [taskId, change] of finalByTask) {
     const { error: updateError } = await supabase
