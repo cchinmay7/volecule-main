@@ -10,7 +10,11 @@ const HEADER_LABELS = {
   duration: 'DUR',
   start: 'START',
   finish: 'FINISH',
+  status: 'STATUS',
+  completion: 'DATE OF COMPLETION',
 } as const
+
+const COMPLETED_STATUS_TEXT = 'COMPLETED'
 
 type ColumnMap = {
   work: number
@@ -19,6 +23,11 @@ type ColumnMap = {
   duration: number
   start: number
   finish: number
+  /** Optional pair — only present on a sheet carrying ongoing-project
+   * progress (open flag B). Either both are set or both are null; never
+   * required for the header row to be recognized. */
+  status: number | null
+  completion: number | null
 }
 
 function cellText(cell: ExcelJS.Cell): string {
@@ -76,6 +85,8 @@ function findHeaderRow(
       else if (text.startsWith(HEADER_LABELS.duration)) columns.duration = c
       else if (text === HEADER_LABELS.start) columns.start = c
       else if (text === HEADER_LABELS.finish) columns.finish = c
+      else if (text.startsWith(HEADER_LABELS.status)) columns.status = c
+      else if (text === HEADER_LABELS.completion) columns.completion = c
     }
 
     if (
@@ -86,7 +97,19 @@ function findHeaderRow(
       columns.start &&
       columns.finish
     ) {
-      return { rowNumber: r, columns: columns as ColumnMap }
+      return {
+        rowNumber: r,
+        columns: {
+          work: columns.work,
+          activity: columns.activity,
+          predecessors: columns.predecessors,
+          duration: columns.duration,
+          start: columns.start,
+          finish: columns.finish,
+          status: columns.status ?? null,
+          completion: columns.completion ?? null,
+        },
+      }
     }
   }
   return null
@@ -196,6 +219,36 @@ export async function parseScheduleWorkbook(
     }
     seenRefs.add(externalRef)
 
+    // Ongoing-project onboarding (open flag B): a task whose STATUS @
+    // ENTRY reads "Completed" carries a real actual_end from DATE OF
+    // COMPLETION — everything else ("In Progress", "Not Started", blank,
+    // or the columns not existing at all on an ordinary Schedule Zero
+    // sheet) imports exactly as before, with actualEnd left null.
+    let actualEnd: string | null = null
+    if (header.columns.status !== null && header.columns.completion !== null) {
+      const statusText = cellText(
+        row.getCell(header.columns.status),
+      ).toUpperCase()
+      if (statusText === COMPLETED_STATUS_TEXT) {
+        const completionDate = cellDate(row.getCell(header.columns.completion))
+        if (!completionDate) {
+          errors.push({
+            row: r,
+            message: `Task ${externalRef} is marked Completed but has no valid date of completion.`,
+          })
+          continue
+        }
+        if (completionDate < plannedStart) {
+          errors.push({
+            row: r,
+            message: `Task ${externalRef}'s date of completion (${completionDate}) is before its own start (${plannedStart}).`,
+          })
+          continue
+        }
+        actualEnd = completionDate
+      }
+    }
+
     tasks.push({
       externalRef,
       name: activityText,
@@ -205,6 +258,7 @@ export async function parseScheduleWorkbook(
       plannedEnd,
       predecessorRefs: parsePredecessorList(predText),
       sourceRow: r,
+      actualEnd,
     })
   }
 

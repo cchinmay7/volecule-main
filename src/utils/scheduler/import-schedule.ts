@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { ParsedTaskRow } from './types'
+import { diffDaysIso } from './propagate'
 
 export type ImportOutcome =
   | {
@@ -148,6 +149,22 @@ export async function importSchedule({
       taskIdByRef.set(task.externalRef, existing.id)
       updated += 1
     } else {
+      // Ongoing-project onboarding (open flag B): a row carrying a real
+      // actual_end (STATUS @ ENTRY = "Completed") imports already done,
+      // not as a fresh pending task for the algorithm to catch up on.
+      // actual_start is assumed to be the task's own planned start —
+      // there's no independent "actual start" signal in the sheet, same
+      // situation the propagation engine is already in for a delayed
+      // task's own start (§06 step 2) — and duration_days is recomputed
+      // from the true start/end span rather than trusting the sheet's
+      // own DUR column, keeping duration_days = current_end - current_start
+      // for this row from the moment it's created (§12, "duration is
+      // dynamic").
+      const isDone = task.actualEnd !== null
+      const durationDays = isDone
+        ? Math.max(1, diffDaysIso(task.plannedStart, task.actualEnd as string))
+        : task.durationDays
+
       const { data: inserted, error: insertError } = await supabase
         .from('schedule_tasks')
         .insert({
@@ -158,9 +175,11 @@ export async function importSchedule({
           original_planned_start: task.plannedStart,
           original_planned_end: task.plannedEnd,
           current_planned_start: task.plannedStart,
-          current_planned_end: task.plannedEnd,
-          duration_days: task.durationDays,
-          status: 'pending',
+          current_planned_end: isDone ? task.actualEnd : task.plannedEnd,
+          duration_days: durationDays,
+          actual_start: isDone ? task.plannedStart : null,
+          actual_end: task.actualEnd,
+          status: isDone ? 'done' : 'pending',
           created_in_version_id: newVersion.id,
         })
         .select('id')

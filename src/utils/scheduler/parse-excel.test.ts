@@ -8,6 +8,11 @@ const REAL_WORKBOOK_PATH = path.resolve(
   '__fixtures__/scheduler-zero.xlsx',
 )
 
+const ONGOING_WORKBOOK_PATH = path.resolve(
+  __dirname,
+  '__fixtures__/scheduler-zero-ongoing.xlsx',
+)
+
 describe('parseScheduleWorkbook', () => {
   it('parses the real Scheduler Zero workbook', async () => {
     const buffer = readFileSync(REAL_WORKBOOK_PATH)
@@ -43,5 +48,45 @@ describe('parseScheduleWorkbook', () => {
     expect(bogus).toBeUndefined()
 
     expect(result.warnings).toEqual([])
+
+    // No STATUS @ ENTRY / DATE OF COMPLETION columns on this sheet — every
+    // task must import as a normal fresh task, unaffected by open flag B.
+    expect(result.tasks.every((t) => t.actualEnd === null)).toBe(true)
+  })
+
+  it('parses an ongoing-project workbook carrying STATUS @ ENTRY / DATE OF COMPLETION (open flag B)', async () => {
+    const buffer = readFileSync(ONGOING_WORKBOOK_PATH)
+    const result = await parseScheduleWorkbook(buffer)
+
+    if (!result.ok) {
+      throw new Error(
+        `Expected a successful parse, got errors: ${JSON.stringify(result.errors)}`,
+      )
+    }
+
+    expect(result.tasks).toHaveLength(84)
+
+    // W1–W34 are "Completed" with a DATE OF COMPLETION exactly matching
+    // their own baseline FINISH in this fixture.
+    const w1 = result.tasks.find((t) => t.externalRef === 'W1')
+    expect(w1?.plannedEnd).toBe('2026-05-04')
+    expect(w1?.actualEnd).toBe('2026-05-04')
+
+    const w34 = result.tasks.find((t) => t.externalRef === 'W34')
+    expect(w34?.actualEnd).toBe('2026-09-12')
+
+    // W35 is "In Progress" — imports as a normal, unconfirmed task, not
+    // specially marked done (only "Completed" gets actualEnd).
+    const w35 = result.tasks.find((t) => t.externalRef === 'W35')
+    expect(w35?.actualEnd).toBeNull()
+
+    // W36 onward is "Not Started" — same, untouched.
+    const w36 = result.tasks.find((t) => t.externalRef === 'W36')
+    expect(w36?.actualEnd).toBeNull()
+
+    const completedCount = result.tasks.filter(
+      (t) => t.actualEnd !== null,
+    ).length
+    expect(completedCount).toBe(34)
   })
 })
