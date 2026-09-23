@@ -15,6 +15,7 @@ const HEADER_LABELS = {
 } as const
 
 const COMPLETED_STATUS_TEXT = 'COMPLETED'
+const IN_PROGRESS_STATUS_TEXT = 'IN PROGRESS'
 
 type ColumnMap = {
   work: number
@@ -220,16 +221,29 @@ export async function parseScheduleWorkbook(
     seenRefs.add(externalRef)
 
     // Ongoing-project onboarding (open flag B): a task whose STATUS @
-    // ENTRY reads "Completed" carries a real actual_end from DATE OF
-    // COMPLETION — everything else ("In Progress", "Not Started", blank,
-    // or the columns not existing at all on an ordinary Schedule Zero
-    // sheet) imports exactly as before, with actualEnd left null.
+    // ENTRY reads "Completed" or "In Progress" is assumed to have
+    // started exactly on schedule — actualStart is the task's own
+    // plannedStart, since the sheet carries no independent actual-start
+    // column (same "safer assumption" the propagation engine already
+    // makes elsewhere for a task with no start signal, §06 step 2).
+    // "Completed" additionally carries a real actual_end from DATE OF
+    // COMPLETION. "Not Started", blank, or the STATUS column not
+    // existing at all (an ordinary Schedule Zero sheet) import exactly
+    // as before — both left null.
+    let actualStart: string | null = null
     let actualEnd: string | null = null
-    if (header.columns.status !== null && header.columns.completion !== null) {
+    if (header.columns.status !== null) {
       const statusText = cellText(
         row.getCell(header.columns.status),
       ).toUpperCase()
       if (statusText === COMPLETED_STATUS_TEXT) {
+        if (header.columns.completion === null) {
+          errors.push({
+            row: r,
+            message: `Task ${externalRef} is marked Completed but this sheet has no DATE OF COMPLETION column.`,
+          })
+          continue
+        }
         const completionDate = cellDate(row.getCell(header.columns.completion))
         if (!completionDate) {
           errors.push({
@@ -245,7 +259,10 @@ export async function parseScheduleWorkbook(
           })
           continue
         }
+        actualStart = plannedStart
         actualEnd = completionDate
+      } else if (statusText === IN_PROGRESS_STATUS_TEXT) {
+        actualStart = plannedStart
       }
     }
 
@@ -258,6 +275,7 @@ export async function parseScheduleWorkbook(
       plannedEnd,
       predecessorRefs: parsePredecessorList(predText),
       sourceRow: r,
+      actualStart,
       actualEnd,
     })
   }

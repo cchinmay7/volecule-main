@@ -51,6 +51,7 @@ describe('parseScheduleWorkbook', () => {
 
     // No STATUS @ ENTRY / DATE OF COMPLETION columns on this sheet — every
     // task must import as a normal fresh task, unaffected by open flag B.
+    expect(result.tasks.every((t) => t.actualStart === null)).toBe(true)
     expect(result.tasks.every((t) => t.actualEnd === null)).toBe(true)
   })
 
@@ -66,27 +67,39 @@ describe('parseScheduleWorkbook', () => {
 
     expect(result.tasks).toHaveLength(84)
 
-    // W1–W34 are "Completed" with a DATE OF COMPLETION exactly matching
-    // their own baseline FINISH in this fixture.
+    // W1–W34 are "Completed" — actualStart assumed as their own planned
+    // start, actualEnd a real DATE OF COMPLETION exactly matching their
+    // own baseline FINISH in this fixture.
     const w1 = result.tasks.find((t) => t.externalRef === 'W1')
+    expect(w1?.plannedStart).toBe('2026-04-27')
+    expect(w1?.actualStart).toBe('2026-04-27')
     expect(w1?.plannedEnd).toBe('2026-05-04')
     expect(w1?.actualEnd).toBe('2026-05-04')
 
     const w34 = result.tasks.find((t) => t.externalRef === 'W34')
     expect(w34?.actualEnd).toBe('2026-09-12')
 
-    // W35 is "In Progress" — imports as a normal, unconfirmed task, not
-    // specially marked done (only "Completed" gets actualEnd).
+    // W35 is "In Progress" — assumed started on its own planned start
+    // (no separate confirm-start needed), but not finished, so no
+    // actualEnd.
     const w35 = result.tasks.find((t) => t.externalRef === 'W35')
+    expect(w35?.plannedStart).toBe('2026-09-12')
+    expect(w35?.actualStart).toBe('2026-09-12')
     expect(w35?.actualEnd).toBeNull()
 
-    // W36 onward is "Not Started" — same, untouched.
+    // W36 onward is "Not Started" — neither assumed, both null.
     const w36 = result.tasks.find((t) => t.externalRef === 'W36')
+    expect(w36?.actualStart).toBeNull()
     expect(w36?.actualEnd).toBeNull()
 
     const completedCount = result.tasks.filter(
       (t) => t.actualEnd !== null,
     ).length
     expect(completedCount).toBe(34)
+
+    const startedCount = result.tasks.filter(
+      (t) => t.actualStart !== null,
+    ).length
+    expect(startedCount).toBe(35) // 34 Completed + 1 In Progress
   })
 })

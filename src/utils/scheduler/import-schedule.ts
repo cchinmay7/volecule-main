@@ -150,16 +150,24 @@ export async function importSchedule({
       updated += 1
     } else {
       // Ongoing-project onboarding (open flag B): a row carrying a real
-      // actual_end (STATUS @ ENTRY = "Completed") imports already done,
-      // not as a fresh pending task for the algorithm to catch up on.
-      // actual_start is assumed to be the task's own planned start —
-      // there's no independent "actual start" signal in the sheet, same
-      // situation the propagation engine is already in for a delayed
-      // task's own start (§06 step 2) — and duration_days is recomputed
-      // from the true start/end span rather than trusting the sheet's
-      // own DUR column, keeping duration_days = current_end - current_start
-      // for this row from the moment it's created (§12, "duration is
-      // dynamic").
+      // actual_end (STATUS @ ENTRY = "Completed") imports already done.
+      // A row carrying actual_start but no actual_end ("In Progress")
+      // imports as started but not finished — no separate confirm-start
+      // action needed; a task already reported in progress in the
+      // source sheet is assumed to have begun exactly on schedule, on
+      // its own planned start, since the sheet carries no independent
+      // actual-start column (same "safer assumption" the propagation
+      // engine already makes elsewhere, §06 step 2). Anything else
+      // ("Not Started", blank, or no STATUS column at all) imports
+      // exactly as before — a fresh, unconfirmed pending task.
+      //
+      // duration_days is only recomputed (from the true start/end span,
+      // not the sheet's own DUR column) for a done task, keeping
+      // duration_days = current_end - current_start from the moment the
+      // row is created (§12, "duration is dynamic"). An in-progress task
+      // has no actual end yet, so there's nothing to recompute from —
+      // duration_days stays whatever the sheet said, exactly like a
+      // normal pending import.
       const isDone = task.actualEnd !== null
       const durationDays = isDone
         ? Math.max(1, diffDaysIso(task.plannedStart, task.actualEnd as string))
@@ -177,7 +185,7 @@ export async function importSchedule({
           current_planned_start: task.plannedStart,
           current_planned_end: isDone ? task.actualEnd : task.plannedEnd,
           duration_days: durationDays,
-          actual_start: isDone ? task.plannedStart : null,
+          actual_start: task.actualStart,
           actual_end: task.actualEnd,
           status: isDone ? 'done' : 'pending',
           created_in_version_id: newVersion.id,

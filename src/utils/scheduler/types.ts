@@ -7,13 +7,19 @@ export type ParsedTaskRow = {
   plannedEnd: string
   predecessorRefs: string[]
   sourceRow: number
-  /** Set only when the sheet carries an optional STATUS @ ENTRY /
-   * DATE OF COMPLETION column pair and this row's status reads
-   * "Completed" — the ongoing-project onboarding case (open flag B).
+  /** Set (to the task's own plannedStart — "started on time," no
+   * independent actual-start signal exists in the sheet) whenever an
+   * optional STATUS @ ENTRY column is present and reads "Completed" or
+   * "In Progress" — the ongoing-project onboarding case (open flag B).
    * Null for a normal Schedule Zero import, or a row whose status is
-   * anything else ("In Progress", "Not Started", blank) — those import
-   * exactly like today, as a fresh pending task the algorithm confirms
-   * the start of later. */
+   * "Not Started"/blank — those import exactly like today, as a fresh
+   * unconfirmed pending task. */
+  actualStart: string | null
+  /** Set only when status reads "Completed", from the sheet's own
+   * DATE OF COMPLETION column — the one case with a real, independent
+   * date rather than an assumption. Null for every other status,
+   * "In Progress" included: an in-progress task has genuinely started
+   * but not finished, so there's no end to record yet. */
   actualEnd: string | null
 }
 
