@@ -12,6 +12,7 @@ import {
   type DerivedStatus,
 } from '@/utils/scheduler/derive-status'
 import { ConfirmStartForm } from './confirm-start-form'
+import { RefreshSweepForm } from './refresh-sweep-form'
 
 type ProjectRow = {
   id: string
@@ -187,15 +188,18 @@ export default async function ProjectSchedulerPage({
                 yet.
               </p>
             </div>
-            <div className="flex flex-wrap gap-2">
-              <Badge variant="outline">{tasks.length} tasks</Badge>
-              {(Object.entries(counts) as [DerivedStatus, number][]).map(
-                ([status, count]) => (
-                  <Badge key={status} variant={statusVariant(status)}>
-                    {status.replace('_', ' ')}: {count}
-                  </Badge>
-                ),
-              )}
+            <div className="flex flex-wrap items-start gap-3">
+              <div className="flex flex-wrap gap-2">
+                <Badge variant="outline">{tasks.length} tasks</Badge>
+                {(Object.entries(counts) as [DerivedStatus, number][]).map(
+                  ([status, count]) => (
+                    <Badge key={status} variant={statusVariant(status)}>
+                      {status.replace('_', ' ')}: {count}
+                    </Badge>
+                  ),
+                )}
+              </div>
+              <RefreshSweepForm projectId={projectId} />
             </div>
           </div>
         </CardHeader>

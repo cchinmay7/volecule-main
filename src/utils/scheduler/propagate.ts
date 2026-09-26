@@ -71,6 +71,25 @@ export function diffDaysIso(from: string, to: string): number {
 }
 
 /**
+ * How far a single still-not-done check happening "as of" `asOfDate`
+ * should push `fromDate` (a task's current_planned_start or _end) forward
+ * by. In the steady state — a check runs every day, so `fromDate` already
+ * equals `asOfDate` — this is exactly 1, matching the flat +1-per-check
+ * push this generalizes. When checks have been skipped (a weekend with no
+ * form submitted, or a manual refresh sweep run days later), `fromDate`
+ * lags behind `asOfDate` and the whole gap is caught up in one step,
+ * mirroring how applyTaskCompletions already reconciles a late completion
+ * in one step rather than one row per skipped day — a single check, run
+ * however late, should land on the same date a real check would have
+ * every intervening day. Clamped to a minimum of 1: a check that finds a
+ * task still not done always pushes forward, never backward, even if
+ * called defensively against a date that isn't actually behind.
+ */
+export function catchupPushDays(fromDate: string, asOfDate: string): number {
+  return Math.max(1, diffDaysIso(fromDate, asOfDate) + 1)
+}
+
+/**
  * Breadth-first relaxation over the dependency DAG. Given a set of tasks
  * whose `current_planned_end` just changed (`seeds`), propagates the
  * effect to every dependent, transitively, and returns the list of
@@ -445,7 +464,8 @@ async function snapshotVersion(
  * genuinely started (`actual_start` set) is eligible for this check at
  * all (spec §12, "Delayed: Start and Delayed: End" — mutual exclusivity),
  * so there's no ambiguity to resolve about when it began. `duration_days`
- * grows by the same +1 the end moves, so it always stays equal to
+ * grows by however many days the end moves (catchupPushDays — 1 in the
+ * steady state, more if checks were skipped), so it always stays equal to
  * `current_planned_end - current_planned_start` for a task that's
  * actually running long (spec §12, "Duration is dynamic").
  */
@@ -455,12 +475,18 @@ export async function applyDelayedEnds({
   delayedTaskIds,
   triggerProjectLogId,
   missReason,
+  asOfDate,
 }: {
   supabase: SupabaseClient
   projectId: string
   delayedTaskIds: string[]
   triggerProjectLogId: string | null
   missReason: string | null
+  /** The date this check is being run as of — the log's own date for a
+   * real submission, or the operator-chosen date for a manual refresh
+   * sweep. Drives catchupPushDays, so a check run after a gap reconciles
+   * the whole gap in one step instead of under-pushing by the usual 1. */
+  asOfDate: string
 }): Promise<PropagationOutcome> {
   if (delayedTaskIds.length === 0) {
     return { success: true, versionNumber: null, tasksChanged: 0 }
@@ -557,15 +583,18 @@ export async function applyDelayedEnds({
   // not-yet-updated current_planned_end.
   const originalState = graph.tasks
 
+  const newEndByRoot = new Map<string, string>()
   const seeds: CascadeSeed[] = []
   for (const root of rootTasks) {
-    const newEnd = addDaysIso(root.current_planned_end, 1)
+    const pushDays = catchupPushDays(root.current_planned_end, asOfDate)
+    const newEnd = addDaysIso(root.current_planned_end, pushDays)
+    newEndByRoot.set(root.id, newEnd)
 
     const { error: updateError } = await supabase
       .from('schedule_tasks')
       .update({
         current_planned_end: newEnd,
-        duration_days: root.duration_days + 1,
+        duration_days: root.duration_days + pushDays,
       })
       .eq('id', root.id)
 
@@ -608,7 +637,7 @@ export async function applyDelayedEnds({
     previous_start: root.current_planned_start,
     previous_end: root.current_planned_end,
     new_start: root.current_planned_start,
-    new_end: addDaysIso(root.current_planned_end, 1),
+    new_end: newEndByRoot.get(root.id) as string,
     change_reason: 'delayed_end',
     trigger_project_log_id: triggerProjectLogId,
     miss_reason: missReason,
@@ -798,13 +827,15 @@ export async function applyConfirmedStarts({
 
 /**
  * Pushes one or more not-yet-started tasks' whole window — start AND end
- * together — forward by +1 day: the start-checklist equivalent of
- * applyDelayedEnds, for a task whose recommended start is due but wasn't
- * ticked as started this check. `duration_days` is untouched — the task
- * hasn't begun, so there's nothing to widen yet, only a date to slide
- * later (spec §12, "Duration is dynamic" — contrast with the End-side
- * push, which widens the window because the task has genuinely started
- * and is now running long).
+ * together — forward: the start-checklist equivalent of applyDelayedEnds,
+ * for a task whose recommended start is due but wasn't ticked as started
+ * this check. Both move by the same catchupPushDays amount (1 in the
+ * steady state, more if checks were skipped, e.g. a weekend gap or a
+ * manual refresh sweep run days later) — `duration_days` is untouched
+ * either way, since the task hasn't begun, so there's nothing to widen
+ * yet, only a date to slide later (spec §12, "Duration is dynamic" —
+ * contrast with the End-side push, which widens the window because the
+ * task has genuinely started and is now running long).
  */
 export async function applyDelayedStarts({
   supabase,
@@ -812,12 +843,16 @@ export async function applyDelayedStarts({
   delayedStartTaskIds,
   triggerProjectLogId,
   missReason,
+  asOfDate,
 }: {
   supabase: SupabaseClient
   projectId: string
   delayedStartTaskIds: string[]
   triggerProjectLogId: string | null
   missReason: string | null
+  /** Same role as in applyDelayedEnds — the date this check is run as of,
+   * driving catchupPushDays so a gap is caught up in one step. */
+  asOfDate: string
 }): Promise<PropagationOutcome> {
   if (delayedStartTaskIds.length === 0) {
     return { success: true, versionNumber: null, tasksChanged: 0 }
@@ -843,10 +878,13 @@ export async function applyDelayedStarts({
   }
   const originalState = graph.tasks
 
+  const newDatesByRoot = new Map<string, { start: string; end: string }>()
   const seeds: CascadeSeed[] = []
   for (const root of rootTasks) {
-    const newStart = addDaysIso(root.current_planned_start, 1)
-    const newEnd = addDaysIso(root.current_planned_end, 1)
+    const pushDays = catchupPushDays(root.current_planned_start, asOfDate)
+    const newStart = addDaysIso(root.current_planned_start, pushDays)
+    const newEnd = addDaysIso(root.current_planned_end, pushDays)
+    newDatesByRoot.set(root.id, { start: newStart, end: newEnd })
 
     const { error: updateError } = await supabase
       .from('schedule_tasks')
@@ -889,17 +927,23 @@ export async function applyDelayedStarts({
     missReason,
   )
 
-  const rootRevisions: RevisionInsert[] = rootTasks.map((root) => ({
-    task_id: root.id,
-    schedule_version_id: version.id,
-    previous_start: root.current_planned_start,
-    previous_end: root.current_planned_end,
-    new_start: addDaysIso(root.current_planned_start, 1),
-    new_end: addDaysIso(root.current_planned_end, 1),
-    change_reason: 'delayed_start',
-    trigger_project_log_id: triggerProjectLogId,
-    miss_reason: missReason,
-  }))
+  const rootRevisions: RevisionInsert[] = rootTasks.map((root) => {
+    const newDates = newDatesByRoot.get(root.id) as {
+      start: string
+      end: string
+    }
+    return {
+      task_id: root.id,
+      schedule_version_id: version.id,
+      previous_start: root.current_planned_start,
+      previous_end: root.current_planned_end,
+      new_start: newDates.start,
+      new_end: newDates.end,
+      change_reason: 'delayed_start',
+      trigger_project_log_id: triggerProjectLogId,
+      miss_reason: missReason,
+    }
+  })
 
   for (const [taskId, change] of finalByTask) {
     const { error: updateError } = await supabase

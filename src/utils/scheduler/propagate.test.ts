@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   addDaysIso,
+  catchupPushDays,
   computeCascade,
   diffDaysIso,
   type CascadeChange,
@@ -32,6 +33,29 @@ describe('diffDaysIso', () => {
     const plannedEnd = '2026-09-15'
     const actualEnd = '2026-09-12'
     expect(diffDaysIso(actualEnd, plannedEnd)).toBe(3)
+  })
+})
+
+describe('catchupPushDays', () => {
+  it('is exactly 1 in the steady state — a check the same day the field is due', () => {
+    expect(catchupPushDays('2026-09-10', '2026-09-10')).toBe(1)
+  })
+
+  it('catches up the whole gap in one step when checks were skipped', () => {
+    // Deadline was Friday; no checks ran Sat/Sun; today (the next check,
+    // real or swept) is Monday — 3 calendar days behind, so a single
+    // check should push 4 (Fri, Sat, Sun, Mon each count as one missed
+    // check), landing the new deadline on Tuesday.
+    const friday = '2026-09-11'
+    const monday = '2026-09-14'
+    expect(catchupPushDays(friday, monday)).toBe(4)
+    expect(addDaysIso(friday, catchupPushDays(friday, monday))).toBe(
+      '2026-09-15', // Tuesday
+    )
+  })
+
+  it('clamps to a minimum of 1 if asOfDate is not actually behind (defensive)', () => {
+    expect(catchupPushDays('2026-09-10', '2026-09-05')).toBe(1)
   })
 })
 
