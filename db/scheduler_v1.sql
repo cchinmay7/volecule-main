@@ -291,19 +291,46 @@ alter table public.project_logs
 -- record — e.g. a morning-form start confirmation for a task whose
 -- predecessors weren't actually done yet, or an evening-form completion
 -- tick for a task that was never confirmed started in the first place.
--- Both are rejected rather than applied, but recorded so neither is just
--- a Vercel log line that scrolls away. flag_type is an enum, not free
--- text, so it's ready to hold future anomaly kinds without another
+-- Most are rejected rather than applied; 'optimistic_start_reverted' is
+-- the exception — that one *was* applied, provisionally, and is being
+-- undone now that the bet it depended on didn't pay off (the same-day
+-- parent/child boundary fix). Recorded either way, so none of these are
+-- just a Vercel log line that scrolls away. flag_type is an enum, not
+-- free text, so it's ready to hold future anomaly kinds without another
 -- migration.
 create table if not exists public.schedule_ingestion_flags (
   id uuid primary key default gen_random_uuid(),
   project_id uuid not null references public.projects (id) on delete cascade,
   task_id uuid references public.schedule_tasks (id) on delete cascade,
   project_log_id uuid references public.project_logs (id) on delete set null,
-  flag_type text not null check (flag_type in ('start_confirmed_before_predecessor_done', 'target_ticked_before_confirmed_start')),
+  flag_type text not null check (flag_type in ('start_confirmed_before_predecessor_done', 'target_ticked_before_confirmed_start', 'optimistic_start_reverted')),
   detail text,
   created_at timestamptz not null default now()
 );
+
+-- Adds 'optimistic_start_reverted' to an already-existing constraint —
+-- same dynamic-lookup-and-drop pattern used elsewhere in this file.
+do $$
+declare
+  found_constraint text;
+begin
+  select con.conname into found_constraint
+  from pg_constraint con
+  join pg_class rel on rel.oid = con.conrelid
+  join pg_namespace nsp on nsp.oid = rel.relnamespace
+  where nsp.nspname = 'public'
+    and rel.relname = 'schedule_ingestion_flags'
+    and con.contype = 'c'
+    and pg_get_constraintdef(con.oid) like '%flag_type%';
+
+  if found_constraint is not null then
+    execute format('alter table public.schedule_ingestion_flags drop constraint %I', found_constraint);
+  end if;
+end $$;
+
+alter table public.schedule_ingestion_flags
+  add constraint schedule_ingestion_flags_flag_type_check
+  check (flag_type in ('start_confirmed_before_predecessor_done', 'target_ticked_before_confirmed_start', 'optimistic_start_reverted'));
 
 create index if not exists schedule_ingestion_flags_project_created_idx
   on public.schedule_ingestion_flags (project_id, created_at desc);
