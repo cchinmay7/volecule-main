@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { recordIngestionFlags } from '@/utils/scheduler/gating'
 
 /**
  * Schedule Propagation Engine — see db/scheduler_v1.sql and the "Schedule
@@ -477,6 +478,73 @@ export async function applyDelayedEnds({
   const rootTasks = (rootRows ?? []) as ScheduleTaskRow[]
   if (rootTasks.length === 0) {
     return { success: true, versionNumber: null, tasksChanged: 0 }
+  }
+
+  // A root being pushed here is, by definition, still 'pending' — not
+  // done. The only way a direct dependent of it could already have
+  // actual_start set is the loosened same-day/overdue morning-start
+  // eligibility (gating.ts's looseEligibleTaskIds): normal confirmation
+  // requires the predecessor already done, which this one isn't. That
+  // bet just turned out wrong, so it's reverted — actual_start cleared
+  // back to null — rather than left standing on a predecessor that
+  // didn't actually finish. The date push itself needs no extra seeding:
+  // computeCascade's push relaxation below already walks from these
+  // roots to every direct dependent purely by current_planned_end/start,
+  // with no awareness of actual_start either way, so a reverted child's
+  // dates land in exactly the right place for free.
+  const rootIds = rootTasks.map((r) => r.id)
+  const { data: dependentEdgeRows, error: dependentEdgesError } = await supabase
+    .from('schedule_task_dependencies')
+    .select('task_id, depends_on_task_id')
+    .in('depends_on_task_id', rootIds)
+
+  if (dependentEdgesError) {
+    return { success: false, error: dependentEdgesError.message }
+  }
+
+  const dependentIds = Array.from(
+    new Set((dependentEdgeRows ?? []).map((e) => e.task_id as string)),
+  )
+
+  const revertTaskIds: string[] = []
+  if (dependentIds.length > 0) {
+    const { data: dependentRows, error: dependentRowsError } = await supabase
+      .from('schedule_tasks')
+      .select('id, actual_start')
+      .in('id', dependentIds)
+      .eq('status', 'pending')
+      .not('actual_start', 'is', null)
+
+    if (dependentRowsError) {
+      return { success: false, error: dependentRowsError.message }
+    }
+
+    for (const row of dependentRows ?? []) {
+      revertTaskIds.push(row.id as string)
+    }
+  }
+
+  if (revertTaskIds.length > 0) {
+    const { error: revertError } = await supabase
+      .from('schedule_tasks')
+      .update({ actual_start: null })
+      .in('id', revertTaskIds)
+
+    if (revertError) {
+      return { success: false, error: revertError.message }
+    }
+
+    await recordIngestionFlags(
+      supabase,
+      projectId,
+      triggerProjectLogId,
+      'optimistic_start_reverted',
+      revertTaskIds.map((taskId) => ({
+        taskId,
+        detail:
+          'Confirmed started on the assumption its predecessor would finish that day — reverted, since the predecessor was marked not done this check.',
+      })),
+    )
   }
 
   const graph = await fetchProjectGraph(supabase, projectId)

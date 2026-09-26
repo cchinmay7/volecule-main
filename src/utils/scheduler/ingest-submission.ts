@@ -6,11 +6,10 @@ import {
   applyDelayedStarts,
   applyTaskCompletions,
 } from '@/utils/scheduler/propagate'
-import { filterEligibleCandidates } from '@/utils/scheduler/gating'
-
-export type IngestionFlagType =
-  | 'start_confirmed_before_predecessor_done'
-  | 'target_ticked_before_confirmed_start'
+import {
+  filterEligibleCandidates,
+  recordIngestionFlags,
+} from '@/utils/scheduler/gating'
 
 /**
  * Core log-ingestion + schedule-propagation logic, shared by the real
@@ -354,9 +353,16 @@ async function runMorningPropagation({
   }
   if (!candidateTasks || candidateTasks.length === 0) return
 
+  // treatDueAsClearedAsOf lets a same-day (or overdue) predecessor's
+  // handoff be trusted for a *ticked* confirmation (spec: parent/child
+  // boundary-day fix) — looseEligibleTaskIds carries that; strict
+  // eligibleTaskIds is still what gates an independent delayed-start
+  // push, so an unconfirmed task never gets pushed twice (once here,
+  // once via cascade from the predecessor's own eventual push).
   const gate = await filterEligibleCandidates(
     supabase,
     candidateTasks.map((t) => t.id as string),
+    logDate,
   )
   if (!gate.ok) {
     console.error('[ingestion] morning gating query error', gate.error)
@@ -372,26 +378,29 @@ async function runMorningPropagation({
     const normalized = externalRef ? normalizeTaskId(externalRef) : null
     const plannedStart = task.current_planned_start as string
     const wasTicked = normalized !== null && confirmedIds.has(normalized)
+    const taskId = task.id as string
 
-    if (!gate.eligibleTaskIds.has(task.id as string)) {
+    if (!gate.looseEligibleTaskIds.has(taskId)) {
       // spec §12 open question (b): confirmed before its predecessor was
-      // done — reject, don't process, but record it rather than
-      // silently drop it.
+      // done (and not even due/overdue) — reject, don't process, but
+      // record it rather than silently drop it.
       if (wasTicked) {
         invalidFlags.push({
-          taskId: task.id as string,
-          detail: `Ticked started on ${logDate}, but a predecessor wasn't done yet.`,
+          taskId,
+          detail: `Ticked started on ${logDate}, but a predecessor wasn't done or due yet.`,
         })
       }
       continue
     }
 
     if (wasTicked) {
-      confirmed.push(task.id as string)
-    } else if (plannedStart <= logDate) {
-      delayedStart.push(task.id as string)
+      confirmed.push(taskId)
+    } else if (gate.eligibleTaskIds.has(taskId) && plannedStart <= logDate) {
+      delayedStart.push(taskId)
     }
-    // else: not due yet — leave untouched
+    // else: not due yet, or only loosely (not strictly) eligible and
+    // left unticked — leave untouched; its dates move via cascade once
+    // its predecessor's own push actually happens.
   }
 
   if (invalidFlags.length > 0) {
@@ -440,40 +449,6 @@ async function runMorningPropagation({
     } else {
       console.error('[ingestion] delayed starts failed', outcome.error)
     }
-  }
-}
-
-/** Records ingestion-time anomalies that were rejected rather than
- * applied (spec §12 open questions (b) and finding 4) — a console.error
- * for real-time visibility, plus a permanent schedule_ingestion_flags
- * row so it isn't just a log line that scrolls away. Never allowed to
- * fail the ingestion request itself. Exported for reuse by the
- * manual-override action (spec §12 open question (j)), which hits the
- * same rejection path when an operator tries to confirm a task whose
- * predecessor isn't actually done. */
-export async function recordIngestionFlags(
-  supabase: SupabaseClient,
-  projectId: string,
-  projectLogId: string | null,
-  flagType: IngestionFlagType,
-  items: { taskId: string; detail: string }[],
-) {
-  if (items.length === 0) return
-
-  console.error(`[ingestion] flagged: ${flagType}`, items)
-
-  const { error } = await supabase.from('schedule_ingestion_flags').insert(
-    items.map((item) => ({
-      project_id: projectId,
-      task_id: item.taskId,
-      project_log_id: projectLogId,
-      flag_type: flagType,
-      detail: item.detail,
-    })),
-  )
-
-  if (error) {
-    console.error('[ingestion] failed to record ingestion flag', error)
   }
 }
 

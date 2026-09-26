@@ -13,12 +13,12 @@ import {
 } from '@/app/protected/project-form'
 import { parseScheduleWorkbook } from '@/utils/scheduler/parse-excel'
 import { importSchedule } from '@/utils/scheduler/import-schedule'
-import {
-  ingestFormSubmission,
-  recordIngestionFlags,
-} from '@/utils/scheduler/ingest-submission'
+import { ingestFormSubmission } from '@/utils/scheduler/ingest-submission'
 import { applyConfirmedStarts } from '@/utils/scheduler/propagate'
-import { filterEligibleCandidates } from '@/utils/scheduler/gating'
+import {
+  filterEligibleCandidates,
+  recordIngestionFlags,
+} from '@/utils/scheduler/gating'
 import type { ParseResult } from '@/utils/scheduler/types'
 
 export type ImportScheduleResult =
@@ -433,12 +433,15 @@ export async function confirmTaskStartAction(
     }
   }
 
-  const gate = await filterEligibleCandidates(admin, [taskId])
+  // Loosened against startDate, same boundary-day rule the morning
+  // trigger uses: a predecessor due on or before the date being
+  // confirmed counts as cleared even if it isn't marked done yet.
+  const gate = await filterEligibleCandidates(admin, [taskId], startDate)
   if (!gate.ok) {
     return { success: false, error: gate.error }
   }
 
-  if (!gate.eligibleTaskIds.has(taskId)) {
+  if (!gate.looseEligibleTaskIds.has(taskId)) {
     await recordIngestionFlags(
       admin,
       projectId,
@@ -447,14 +450,14 @@ export async function confirmTaskStartAction(
       [
         {
           taskId,
-          detail: `Manually confirmed started on ${startDate} by an operator, but a predecessor wasn't done yet.`,
+          detail: `Manually confirmed started on ${startDate} by an operator, but a predecessor wasn't done or due yet.`,
         },
       ],
     )
     return {
       success: false,
       error:
-        "This task's predecessors aren't all done yet — can't confirm a start ahead of them. Flagged for the record.",
+        "This task's predecessor isn't done or due by this date yet — can't confirm a start ahead of it. Flagged for the record.",
     }
   }
 
