@@ -3,6 +3,7 @@ import { unstable_noStore as noStore } from 'next/cache'
 import { createClient } from '@/supabase/server'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { TestConsoleForm } from './test-console-form'
+import { RefreshSweepTestForm } from './refresh-sweep-test-form'
 
 type ProjectRow = { id: string; name: string }
 
@@ -69,6 +70,35 @@ export default async function SchedulerTestConsolePage() {
             </p>
           ) : (
             <TestConsoleForm projects={projects} tasks={tasks} />
+          )}
+        </CardContent>
+      </Card>
+
+      <Card className="border-amber-500/50">
+        <CardHeader>
+          <CardTitle className="text-base">
+            Manual refresh sweep{' '}
+            <span className="text-muted-foreground text-xs font-normal tracking-wide uppercase">
+              spec §13 item C
+            </span>
+          </CardTitle>
+          <p className="text-muted-foreground text-sm">
+            Simulates the manual refresh sweep against a fake &ldquo;as
+            of&rdquo; date — forces the same delayed-start / delayed-end checks
+            a real form submission would run, for a gap of days nothing was
+            submitted at all (e.g. a weekend). Reuses the exact same action the
+            production &ldquo;Refresh schedule&rdquo; button on a project&apos;s
+            scheduler page calls; that button just omits the date and defaults
+            to the project&apos;s real current date instead of a fake one.
+          </p>
+        </CardHeader>
+        <CardContent>
+          {projects.length === 0 ? (
+            <p className="text-muted-foreground text-sm">
+              No active projects found.
+            </p>
+          ) : (
+            <RefreshSweepTestForm projects={projects} />
           )}
         </CardContent>
       </Card>

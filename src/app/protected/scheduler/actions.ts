@@ -19,6 +19,7 @@ import {
   filterEligibleCandidates,
   recordIngestionFlags,
 } from '@/utils/scheduler/gating'
+import { runRefreshSweep } from '@/utils/scheduler/refresh-sweep'
 import type { ParseResult } from '@/utils/scheduler/types'
 
 export type ImportScheduleResult =
@@ -35,6 +36,10 @@ export type ConfirmTaskStartResult =
 
 export type InitializeProjectResult =
   | { success: true; message: string; projectId: string }
+  | { success: false; error: string }
+
+export type RefreshScheduleResult =
+  | { success: true; message: string }
   | { success: false; error: string }
 
 function formatParseErrors(
@@ -480,4 +485,108 @@ export async function confirmTaskStartAction(
     success: true,
     message: `Confirmed started on ${startDate}. ${outcome.tasksChanged} task(s) updated.`,
   }
+}
+
+/**
+ * Manual refresh sweep (spec §13 item C / §12 open question (h)) — forces
+ * the same delayed-start / delayed-end checks a real form submission
+ * would run, for a project where no payload arrived at all over some
+ * stretch of days (a weekend the site was closed, or any other gap).
+ *
+ * The production entry point (the scheduler page's "Refresh" button)
+ * never asks the operator to pick a date — it omits as_of_date entirely,
+ * so this defaults to the project's own real "today" in its timezone. A
+ * single run already reconciles however many days were actually skipped
+ * in one step (propagate.ts's catchupPushDays), so there's no need to
+ * pick a historical date to "catch up through" — running it whenever the
+ * operator remembers to is enough. The date-override testing console
+ * (spec §11 item 2) supplies an explicit fake as_of_date instead, the
+ * same way it already does for a simulated form submission, so a
+ * multi-day gap can be exercised without waiting for real time to pass.
+ */
+export async function refreshScheduleAction(
+  _prev: RefreshScheduleResult | null,
+  formData: FormData,
+): Promise<RefreshScheduleResult> {
+  const auth = await getAuthenticatedUserId()
+  if ('error' in auth) {
+    return { success: false, error: auth.error }
+  }
+
+  const projectId = formData.get('project_id')?.toString().trim()
+  if (!projectId) {
+    return { success: false, error: 'Project is required.' }
+  }
+
+  const admin = createAdminClient()
+
+  const providedDate = formData.get('as_of_date')?.toString().trim()
+  let asOfDate: string
+  if (providedDate) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(providedDate)) {
+      return { success: false, error: 'as_of_date must be YYYY-MM-DD.' }
+    }
+    asOfDate = providedDate
+  } else {
+    const { data: project, error: projectError } = await admin
+      .from('projects')
+      .select('timezone')
+      .eq('id', projectId)
+      .maybeSingle()
+
+    if (projectError || !project) {
+      return { success: false, error: 'Project not found.' }
+    }
+
+    asOfDate = toLocalDateString(new Date(), project.timezone as string)
+  }
+
+  const result = await runRefreshSweep({
+    supabase: admin,
+    projectId,
+    asOfDate,
+  })
+
+  if (!result.ok) {
+    return { success: false, error: result.error }
+  }
+
+  revalidatePath(`/protected/projects/${projectId}/scheduler`)
+  revalidatePath('/protected/scheduler/test')
+
+  if (result.delayedStartCount === 0 && result.delayedEndCount === 0) {
+    return {
+      success: true,
+      message: `Refreshed as of ${asOfDate} — nothing was overdue and unconfirmed.`,
+    }
+  }
+
+  return {
+    success: true,
+    message: `Refreshed as of ${asOfDate}: ${result.delayedStartCount} delayed-start, ${result.delayedEndCount} delayed-end task(s) pushed.`,
+  }
+}
+
+/** Convert a UTC Date to a YYYY-MM-DD string in the target IANA timezone.
+ * Same small helper already duplicated in ingest-submission.ts and the
+ * scheduler/protected pages — no shared util module exists for it yet, so
+ * this follows the existing pattern rather than introducing one. */
+function toLocalDateString(date: Date, timezone: string): string {
+  try {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: timezone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).formatToParts(date)
+
+    const year = parts.find((p) => p.type === 'year')?.value
+    const month = parts.find((p) => p.type === 'month')?.value
+    const day = parts.find((p) => p.type === 'day')?.value
+
+    if (year && month && day) return `${year}-${month}-${day}`
+  } catch {
+    // Fall back to UTC date string if timezone is invalid.
+  }
+  return date.toISOString().slice(0, 10)
 }

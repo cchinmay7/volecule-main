@@ -294,6 +294,7 @@ async function runEveningPropagation({
       delayedTaskIds: delayedEnd,
       triggerProjectLogId,
       missReason: freeNotes,
+      asOfDate: logDate,
     })
     if (outcome.success) {
       console.info('[ingestion] delayed ends applied', {
@@ -439,6 +440,7 @@ async function runMorningPropagation({
       delayedStartTaskIds: delayedStart,
       triggerProjectLogId,
       missReason: null,
+      asOfDate: logDate,
     })
     if (outcome.success) {
       console.info('[ingestion] delayed starts applied', {
