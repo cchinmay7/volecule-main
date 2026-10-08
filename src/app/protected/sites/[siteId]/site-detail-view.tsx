@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { useActionState, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { deleteSiteAction, updateSiteAction } from '@/app/protected/actions'
+import { DeleteConfirmForm } from '@/app/protected/delete-confirm-form'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -181,33 +182,21 @@ export function SiteDetailView({
         )}
       </section>
 
-      <form
+      <DeleteConfirmForm
         action={deleteAction}
-        className="space-y-2 border-t pt-6"
-        onSubmit={(event) => {
-          if (
-            !window.confirm(
-              projects.length > 0
-                ? `Delete this site and all ${projects.length} project(s) under it — including their schedules and logs — permanently?`
-                : 'Delete this site permanently?',
-            )
-          ) {
-            event.preventDefault()
-          }
-        }}
-      >
-        <input type="hidden" name="site_id" value={site.id} />
-        <Button
-          type="submit"
-          variant="destructive"
-          disabled={deletePending || updatePending}
-        >
-          {deletePending ? 'Deleting…' : 'Delete site'}
-        </Button>
-        {deleteState && !deleteState.success && (
-          <p className="text-destructive text-sm">{deleteState.error}</p>
-        )}
-      </form>
+        idFieldName="site_id"
+        idValue={site.id}
+        entityLabel="site"
+        entityName={site.name}
+        warning={
+          projects.length > 0
+            ? `This permanently deletes the site and all ${projects.length} project(s) under it — including their schedules and logs.`
+            : 'This permanently deletes the site.'
+        }
+        pending={deletePending}
+        disabled={updatePending}
+        error={deleteState && !deleteState.success ? deleteState.error : null}
+      />
     </div>
   )
 }

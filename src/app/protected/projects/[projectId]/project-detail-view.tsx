@@ -8,6 +8,7 @@ import {
   sendProjectReminderAction,
   updateProjectAction,
 } from '@/app/protected/actions'
+import { DeleteConfirmForm } from '@/app/protected/delete-confirm-form'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -361,31 +362,17 @@ export function ProjectDetailView({
         </div>
       </section>
 
-      <form
+      <DeleteConfirmForm
         action={deleteAction}
-        className="space-y-2 border-t pt-6"
-        onSubmit={(event) => {
-          if (
-            !window.confirm(
-              'Delete this project and all associated logs permanently?',
-            )
-          ) {
-            event.preventDefault()
-          }
-        }}
-      >
-        <input type="hidden" name="project_id" value={project.id} />
-        <Button
-          type="submit"
-          variant="destructive"
-          disabled={deletePending || updatePending}
-        >
-          {deletePending ? 'Deleting…' : 'Delete project'}
-        </Button>
-        {deleteState && !deleteState.success && (
-          <p className="text-destructive text-sm">{deleteState.error}</p>
-        )}
-      </form>
+        idFieldName="project_id"
+        idValue={project.id}
+        entityLabel="project"
+        entityName={project.name}
+        warning="This permanently deletes the project and all its schedule and logs."
+        pending={deletePending}
+        disabled={updatePending}
+        error={deleteState && !deleteState.success ? deleteState.error : null}
+      />
     </div>
   )
 }

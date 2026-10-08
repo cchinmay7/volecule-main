@@ -351,12 +351,20 @@ export async function deleteProjectAction(
   const supabase = await createClient()
   const { data: existingProject, error: existingProjectError } = await supabase
     .from('projects')
-    .select('id, site_id')
+    .select('id, name, site_id')
     .eq('id', projectId)
     .maybeSingle()
 
   if (existingProjectError || !existingProject) {
     return { success: false, error: 'Project not found.' }
+  }
+
+  const confirmName = formData.get('confirm_name')?.toString().trim()
+  if (confirmName !== (existingProject.name as string).trim()) {
+    return {
+      success: false,
+      error: 'Type the exact project name to confirm deletion.',
+    }
   }
 
   // Deleting a project never touches its site (or any sibling projects
@@ -409,12 +417,20 @@ export async function deleteSiteAction(
 
   const { data: existingSite, error: existingSiteError } = await supabase
     .from('sites')
-    .select('id')
+    .select('id, name')
     .eq('id', siteId)
     .maybeSingle()
 
   if (existingSiteError || !existingSite) {
     return { success: false, error: 'Site not found.' }
+  }
+
+  const confirmName = formData.get('confirm_name')?.toString().trim()
+  if (confirmName !== (existingSite.name as string).trim()) {
+    return {
+      success: false,
+      error: 'Type the exact site name to confirm deletion.',
+    }
   }
 
   // A site precedes its projects (one site, many projects). Deleting it
