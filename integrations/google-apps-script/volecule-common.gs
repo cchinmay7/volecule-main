@@ -60,13 +60,16 @@ function mapObject_(object, fn) {
  * simply left blank is not reported. Never throws. */
 function warnAboutMissingQuestions_(questions) {
   try {
+    // Compare normalised titles (case and spacing ignored), but report the
+    // form's real titles so they can be copied straight into QUESTIONS.
     const onForm = FormApp.getActiveForm()
       .getItems()
       .map(function (item) {
-        return normalizeKey(item.getTitle())
+        return String(item.getTitle())
       })
+    const normalisedOnForm = onForm.map(normalizeKey)
     const missing = flattenTitles_(questions).filter(function (title) {
-      return onForm.indexOf(normalizeKey(title)) === -1
+      return normalisedOnForm.indexOf(normalizeKey(title)) === -1
     })
     if (missing.length > 0) {
       Logger.log(

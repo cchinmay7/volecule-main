@@ -33,6 +33,9 @@ doesn't raise an error; the answer is simply never found, so nothing is sent
 and nothing says why. That is how a form can submit happily for weeks while
 its headcount, or every completed-task tick, goes missing.
 
+Matching ignores capitalisation and extra spaces ("Evening notes" and "Evening Notes" are the same
+question), but wording and punctuation must match ("Escalate to Volecule" is not "Escalate to Volecule?").
+
 So each main script keeps its titles in one `QUESTIONS` block at the top, and
 on every submission `volecule-common.gs` checks them against the form's real
 questions and writes a `WARNING: these questions are not on this form` line to
