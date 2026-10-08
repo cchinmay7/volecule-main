@@ -1,6 +1,6 @@
 // Morning form — Apps Script (form-bound, installable "On form submit" trigger).
-// Also add volecule-photos.gs to this project; it provides syncFormPhotos()
-// and listPhotoFilesSafely(). See README.md in this folder.
+// Also add volecule-common.gs and volecule-photos.gs to this project; they
+// provide the question check and syncFormPhotos(). See README.md.
 //
 // The morning form has no photo question today. Photo support is wired in
 // anyway, so adding a file-upload question to it later just works.
@@ -9,6 +9,27 @@ const INGEST_URL = 'https://volecule-main.vercel.app/api/integrations/google-for
 const INGEST_SECRET = '<PASTE INGESTION_SHARED_SECRET>'; // must match Vercel env var INGESTION_SHARED_SECRET
 const SHIFT = 'morning';
 const SITE_CODE = '<PASTE PROJECT PUBLIC CODE>'; // the project's code from its detail page; identical in the evening script
+
+// Question titles exactly as they appear on THIS form. Run listFormQuestions()
+// once to see them (it shows stray spaces too). Delete the line for any
+// question this form doesn't have. A title that isn't on the form is reported
+// in the execution log on every submission instead of silently sending nothing.
+const QUESTIONS = {
+  starts: 'Which of these are being started today?', // the tasks ticked as started today
+  notes: 'Morning notes',
+  targetsSelected: 'Which of these will be completed by EOD today?',
+  siteEngineer: 'Site Engineer',
+  headcount: {
+    barbenders: 'Barbenders',
+    carpenters: 'Carpenters',
+    masons: 'Masons',
+    helpers: 'Helpers',
+    operators: 'Operators',
+    others: 'Others',
+  },
+  weather: 'Weather (AM)',
+  blocker: 'Anticipated Blocker',
+};
 
 function normalizeKey(key) {
   return String(key).trim().replace(/\s+/g, ' ');
@@ -31,8 +52,7 @@ function getNamedValuesFromEvent(e) {
   }
 
   // Google Forms can bake leading/trailing whitespace into a question's title
-  // (confirmed live on this form's "Barbenders" etc. questions) — normalize
-  // every key so lookups aren't broken by it.
+  // — normalize every key so lookups aren't broken by it.
   const normalized = {};
   Object.keys(raw).forEach((key) => {
     normalized[normalizeKey(key)] = raw[key];
@@ -52,6 +72,7 @@ function allValues(namedValues, key) {
 }
 
 function onFormSubmit(e) {
+  warnAboutMissingQuestions_(QUESTIONS);
   const namedValues = getNamedValuesFromEvent(e);
 
   const submittedAt = e.response
@@ -67,20 +88,15 @@ function onFormSubmit(e) {
     external_submission_id: externalId,
     submitted_at: submittedAt,
     form_values: {
-      site_engineer: firstValue(namedValues, 'Site Engineer'),
-      headcount: {
-        barbenders: firstValue(namedValues, 'Barbenders'),
-        carpenters: firstValue(namedValues, 'Carpenters'),
-        masons: firstValue(namedValues, 'Masons'),
-        helpers: firstValue(namedValues, 'Helpers'),
-        operators: firstValue(namedValues, 'Operators'),
-        others: firstValue(namedValues, 'Others'),
-      },
-      targets_selected: allValues(namedValues, 'Which of these will be completed by EOD today?'),
-      starts_confirmed: allValues(namedValues, 'Which of these are being started today?'),
-      weather_am: firstValue(namedValues, 'Weather (AM)'),
-      anticipated_blocker: firstValue(namedValues, 'Anticipated Blocker'),
-      free_notes: firstValue(namedValues, 'Morning notes'),
+      site_engineer: QUESTIONS.siteEngineer ? firstValue(namedValues, QUESTIONS.siteEngineer) : null,
+      headcount: QUESTIONS.headcount
+        ? mapObject_(QUESTIONS.headcount, (title) => firstValue(namedValues, title))
+        : null,
+      targets_selected: QUESTIONS.targetsSelected ? allValues(namedValues, QUESTIONS.targetsSelected) : null,
+      starts_confirmed: allValues(namedValues, QUESTIONS.starts),
+      weather_am: QUESTIONS.weather ? firstValue(namedValues, QUESTIONS.weather) : null,
+      anticipated_blocker: QUESTIONS.blocker ? firstValue(namedValues, QUESTIONS.blocker) : null,
+      free_notes: firstValue(namedValues, QUESTIONS.notes),
     },
     // Drive file ids of every uploaded photo, kept with the log so a photo
     // that fails to sync below can always be recovered from Drive.
