@@ -47,12 +47,16 @@ Compared with the scripts before photo storage, the main scripts:
 1. Run `db/photos_v1.sql` in the Supabase SQL editor (creates the bucket and
    the `project_log_photos` table). Safe to re-run.
 2. Deploy the app version that includes the photo routes.
-3. Optional but recommended, once: `node scripts/verify-photo-upload.mjs` confirms
-   Storage accepts uploads exactly the way the script sends them. It needs the
-   project URL, the publishable key and the service role key (Supabase dashboard
+3. Check that photo storage works. After the app is deployed, log in and open
+   **/protected/photo-check** (also linked from the Logs page), then click
+   **Run check**. It uploads a one-pixel test image the same way the script does,
+   reads it back and deletes it. Every step should show a tick. It uses the keys
+   the server already has, so there is nothing to copy.
 
-   > Project Settings > API). Put them in `.env.local`, or set them for one
-   > PowerShell session so nothing is saved to disk:
+   The same round trip is available from a terminal if you prefer:
+   `node scripts/verify-photo-upload.mjs` needs the project URL, publishable key
+   and service role key (Supabase dashboard > Project Settings > API), in
+   `.env.local` or set for one PowerShell session so nothing is saved to disk:
 
    ```powershell
    $env:NEXT_PUBLIC_SUPABASE_URL = "https://<project-ref>.supabase.co"

@@ -109,7 +109,12 @@ async function LogsContent() {
       <CardHeader>
         <CardTitle className="text-base">Project logs</CardTitle>
         <CardDescription>
-          Recent morning/evening submissions with site visibility.
+          Recent morning/evening submissions with site visibility. Photos not
+          showing?{' '}
+          <Link href="/protected/photo-check" className="underline">
+            Run the photo storage check
+          </Link>
+          .
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
