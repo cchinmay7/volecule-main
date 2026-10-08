@@ -224,34 +224,67 @@ describe('evening-form.gs', () => {
 })
 
 describe('morning-form.gs', () => {
-  const questions: Question[] = [
-    'Which of these are being started today?',
-    'Which of these will be completed by EOD today?',
-    'Morning notes',
-  ].map((title) => ({ title, type: 'TEXT' }))
+  // The morning form as listFormQuestions() printed it on the live form.
+  const MORNING_QUESTIONS: Question[] = [
+    { title: 'Site Engineer', type: 'TEXT' },
+    { title: 'Which of these are being started today?', type: 'CHECKBOX' },
+    {
+      title: 'Which of these will be completed by EOD today?',
+      type: 'CHECKBOX',
+    },
+    { title: 'Manpower - Planned (by team)', type: 'SECTION_HEADER' },
+    { title: 'Barbenders', type: 'TEXT' },
+    { title: 'Carpenters', type: 'TEXT' },
+    { title: 'Masons', type: 'TEXT' },
+    { title: 'Helpers', type: 'TEXT' },
+    { title: 'Operators', type: 'TEXT' },
+    { title: 'Others', type: 'TEXT' },
+    { title: 'Weather(AM)', type: 'TEXT' },
+    { title: 'Anticipated Blockers', type: 'TEXT' },
+    { title: 'Morning Notes', type: 'PARAGRAPH_TEXT' },
+  ]
 
-  it('sends the start checklist and notes', () => {
-    const { run, calls } = setup('morning-form.gs', questions, [
+  it('sends every answer the form asks for, and flags nothing', () => {
+    const { run, calls, logs } = setup('morning-form.gs', MORNING_QUESTIONS, [
+      { title: 'Site Engineer', value: 'Rahul' },
       {
         title: 'Which of these are being started today?',
         value: ['W12 - Slab'],
       },
-      { title: 'Morning notes', value: 'Crew arrives at 8' },
+      {
+        title: 'Which of these will be completed by EOD today?',
+        value: ['W10 - Columns'],
+      },
+      { title: 'Masons', value: '4' },
+      { title: 'Weather(AM)', value: 'Clear' },
+      { title: 'Anticipated Blockers', value: 'Cement delivery' },
+      { title: 'Morning Notes', value: 'Crew arrives at 8' },
     ])
     run()
 
     expect(calls[0].payload).toMatchObject({
       shift: 'morning',
+      photos_drive: [],
       form_values: {
+        site_engineer: 'Rahul',
         starts_confirmed: ['W12 - Slab'],
+        targets_selected: ['W10 - Columns'],
+        headcount: { masons: '4', helpers: null },
+        weather_am: 'Clear',
+        anticipated_blocker: 'Cement delivery',
         free_notes: 'Crew arrives at 8',
-        targets_selected: [],
       },
     })
+    // Every configured title exists on the form, so nothing is reported.
+    expect(logs.join('\n')).not.toContain('WARNING')
   })
 
-  it('warns about the headcount questions this form does not have', () => {
-    const { run, logs } = setup('morning-form.gs', questions, [])
+  it('reports the headcount questions a form does not have', () => {
+    const { run, logs } = setup(
+      'morning-form.gs',
+      [{ title: 'Morning Notes', type: 'PARAGRAPH_TEXT' }],
+      [],
+    )
     run()
     expect(logs.join('\n')).toContain('Barbenders')
   })

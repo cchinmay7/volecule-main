@@ -17,7 +17,7 @@ const SITE_CODE = '<PASTE PROJECT PUBLIC CODE>' // the project's code from its d
 // in the execution log on every submission instead of silently sending nothing.
 const QUESTIONS = {
   starts: 'Which of these are being started today?', // the tasks ticked as started today
-  notes: 'Morning notes',
+  notes: 'Morning Notes',
   targetsSelected: 'Which of these will be completed by EOD today?',
   siteEngineer: 'Site Engineer',
   headcount: {
@@ -28,8 +28,8 @@ const QUESTIONS = {
     operators: 'Operators',
     others: 'Others',
   },
-  weather: 'Weather (AM)',
-  blocker: 'Anticipated Blocker',
+  weather: 'Weather(AM)',
+  blocker: 'Anticipated Blockers',
 }
 
 // Question titles are matched ignoring capitalisation and extra spaces, so
