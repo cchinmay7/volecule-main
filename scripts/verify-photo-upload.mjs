@@ -3,25 +3,58 @@
 // headers /photos/sign hands out (the public key, not the service role).
 // Run it once after creating the bucket (db/photos_v1.sql):
 //
-//   node --env-file=.env.local scripts/verify-photo-upload.mjs
+//   node scripts/verify-photo-upload.mjs
 //
-// Needs NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY and
-// SUPABASE_SERVICE_ROLE_KEY. Uploads a 1x1 PNG under _smoke/ and removes it
-// again; nothing is written to any table.
+// It needs three values (Supabase dashboard > Project Settings > API, or
+// the same names in your Vercel environment variables). Supply them either
+// in a .env.local file, or just for one PowerShell session:
+//
+//   $env:NEXT_PUBLIC_SUPABASE_URL = "https://<project-ref>.supabase.co"
+//   $env:NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY = "<publishable key>"
+//   $env:SUPABASE_SERVICE_ROLE_KEY = "<service role key>"
+//
+// The PowerShell form leaves nothing on disk, which suits a service role
+// key. The script uploads a 1x1 PNG under _smoke/ and removes it again;
+// nothing is written to any table.
 
 import { createClient } from '@supabase/supabase-js'
 
 const BUCKET = 'site-photos'
-const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-const publishableKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
-const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
 
-if (!url || !publishableKey || !serviceKey) {
+// Read .env.local when there is one. Variables already set in the shell
+// win, and a missing file is fine.
+try {
+  process.loadEnvFile('.env.local')
+} catch {
+  // No .env.local; fall back to the shell's environment.
+}
+
+const REQUIRED = [
+  'NEXT_PUBLIC_SUPABASE_URL',
+  'NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY',
+  'SUPABASE_SERVICE_ROLE_KEY',
+]
+const missing = REQUIRED.filter((name) => !process.env[name])
+if (missing.length > 0) {
+  console.error(`Missing: ${missing.join(', ')}\n`)
   console.error(
-    'Set NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY and SUPABASE_SERVICE_ROLE_KEY.',
+    [
+      'Find them in the Supabase dashboard under Project Settings > API (or in',
+      'your Vercel environment variables), then either put them in .env.local',
+      'or set them for this PowerShell session:',
+      '',
+      '  $env:NEXT_PUBLIC_SUPABASE_URL = "https://<project-ref>.supabase.co"',
+      '  $env:NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY = "<publishable key>"',
+      '  $env:SUPABASE_SERVICE_ROLE_KEY = "<service role key>"',
+      '  node scripts/verify-photo-upload.mjs',
+    ].join('\n'),
   )
   process.exit(1)
 }
+
+const url = process.env.NEXT_PUBLIC_SUPABASE_URL
+const publishableKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
+const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
 
 const admin = createClient(url, serviceKey, {
   auth: { autoRefreshToken: false, persistSession: false },

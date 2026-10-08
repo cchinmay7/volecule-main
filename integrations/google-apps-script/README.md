@@ -33,8 +33,18 @@ Compared with the scripts before photo storage, the main scripts:
 1. Run `db/photos_v1.sql` in the Supabase SQL editor (creates the bucket and
    the `project_log_photos` table). Safe to re-run.
 2. Deploy the app version that includes the photo routes.
-3. Optional but recommended, once: `node --env-file=.env.local scripts/verify-photo-upload.mjs`
-   confirms Storage accepts uploads exactly the way the script sends them.
+3. Optional but recommended, once: `node scripts/verify-photo-upload.mjs` confirms
+   Storage accepts uploads exactly the way the script sends them. It needs the
+   project URL, the publishable key and the service role key (Supabase dashboard
+   > Project Settings > API). Put them in `.env.local`, or set them for one
+   PowerShell session so nothing is saved to disk:
+
+   ```powershell
+   $env:NEXT_PUBLIC_SUPABASE_URL = "https://<project-ref>.supabase.co"
+   $env:NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY = "<publishable key>"
+   $env:SUPABASE_SERVICE_ROLE_KEY = "<service role key>"
+   node scripts/verify-photo-upload.mjs
+   ```
 4. Open the form → ⋮ → **Script editor**.
    - Add a new file `volecule-photos` and paste `volecule-photos.gs`.
    - Replace the main script with `morning-form.gs` / `evening-form.gs`, then
