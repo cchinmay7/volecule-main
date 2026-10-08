@@ -19,7 +19,7 @@ const protectedNavLinks = [
   { href: '/protected/projects', label: 'Projects' },
   { href: '/protected/sites', label: 'Sites' },
   { href: '/protected/logs', label: 'Logs' },
-  { href: '/protected/scheduler/test', label: 'Scheduler test console' },
+  { href: '/protected/updates', label: 'Updates' },
 ]
 
 export default async function ProtectedLayout({

@@ -19,9 +19,10 @@ type FakeResult = { data: unknown; error: { message: string } | null }
  */
 export function createFakeSupabase(
   initial: Record<string, Row[]> = {},
-  options: { latencyMs?: number } = {},
+  options: { latencyMs?: number; failInserts?: string[] } = {},
 ) {
   const latencyMs = options.latencyMs ?? 5
+  const failInserts = new Set(options.failInserts ?? [])
   const tables: Record<string, Row[]> = {}
   for (const [name, rows] of Object.entries(initial)) {
     tables[name] = rows.map((row) => ({ ...row }))
@@ -119,6 +120,12 @@ export function createFakeSupabase(
       const rows = (tables[this.table] ??= [])
 
       if (this.op === 'insert' || this.op === 'upsert') {
+        if (failInserts.has(this.table)) {
+          return {
+            data: null,
+            error: { message: `relation "${this.table}" does not exist` },
+          }
+        }
         const incoming = (
           Array.isArray(this.payload) ? this.payload : [this.payload]
         ) as Row[]

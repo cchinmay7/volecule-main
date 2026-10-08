@@ -41,9 +41,8 @@ import { ingestFormSubmission } from '@/utils/scheduler/ingest-submission'
  * so a photo that fails to sync can be recovered.
  *
  * The actual log-upsert + schedule-propagation logic lives in
- * src/utils/scheduler/ingest-submission.ts, shared with the date-override
- * testing console (spec §11 item 2) so both go through the exact same
- * code path.
+ * src/utils/scheduler/ingest-submission.ts, shared with the Updates page's
+ * missed-log entry so both go through the exact same code path.
  */
 export async function POST(req: NextRequest) {
   // 1. Shared secret check

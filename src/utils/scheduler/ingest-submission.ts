@@ -14,9 +14,9 @@ import {
 /**
  * Core log-ingestion + schedule-propagation logic, shared by the real
  * Google Forms webhook (src/app/api/integrations/google-forms/submit)
- * and the date-override testing console (spec §11 item 2) — one code
- * path for both, so there's nothing test-only that can drift out of
- * sync with production behaviour.
+ * and the Updates page's "enter a missed log" action — one code path
+ * for both, so there's nothing manual-only that can drift out of sync
+ * with production behaviour.
  *
  * The caller is responsible for authentication (the shared-secret check
  * for the real webhook; being a logged-in operator for the test
@@ -46,9 +46,9 @@ export type IngestSubmissionInput = {
   /** Stored verbatim in project_logs.source_payload_json for traceability. */
   sourcePayload: unknown
   /** Must match project_logs.source's check constraint. The date-override
-   * testing console (spec §11 item 2) uses 'manual' — there's no
-   * dedicated value for it in the schema, and 'manual' already means
-   * "not the real webhook". */
+   * Updates page's missed-log entry uses 'manual' — there's no dedicated
+   * value for it in the schema, and 'manual' already means "not the real
+   * webhook". */
   source: 'google_form' | 'manual'
 }
 
