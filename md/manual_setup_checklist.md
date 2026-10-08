@@ -74,6 +74,9 @@ For each morning/evening form:
    - `x-volecule-secret: <INGESTION_SHARED_SECRET>`
 4. Map form fields correctly (`project_code` or `project_id`, date/shift/headcount/target/notes as configured).
 5. Install `onFormSubmit` trigger (manual runs do not provide the event object).
+6. Photos: run `db/photos_v1.sql`, add `integrations/google-apps-script/volecule-photos.gs`
+   to the form's script, and authorise Drive access — full steps in
+   `integrations/google-apps-script/README.md`.
 
 ## 7) WhatsApp Setup
 

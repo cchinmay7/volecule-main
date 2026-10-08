@@ -77,6 +77,23 @@ async function LogsContent() {
       .limit(50),
   ])
 
+  // Photo counts come from a table added after the original schema, so a
+  // failure here (db/photos_v1.sql not run yet) just means no badges.
+  const photoCountByLogId = new Map<string, number>()
+  const logIds = ((logs ?? []) as { id: string }[]).map((log) => log.id)
+  if (logIds.length > 0) {
+    const { data: photoRows } = await supabase
+      .from('project_log_photos')
+      .select('project_log_id')
+      .in('project_log_id', logIds)
+    for (const row of (photoRows ?? []) as { project_log_id: string }[]) {
+      photoCountByLogId.set(
+        row.project_log_id,
+        (photoCountByLogId.get(row.project_log_id) ?? 0) + 1,
+      )
+    }
+  }
+
   const typedSites = (sites ?? []) as SiteRow[]
   const siteNameById = Object.fromEntries(
     typedSites.map((site) => [site.id, site.name]),
@@ -129,6 +146,12 @@ async function LogsContent() {
                   <div className="flex items-center gap-2">
                     {log.escalate_to_volecule && (
                       <Badge variant="destructive">Escalated</Badge>
+                    )}
+                    {(photoCountByLogId.get(log.id) ?? 0) > 0 && (
+                      <Badge variant="secondary">
+                        {photoCountByLogId.get(log.id)} photo
+                        {photoCountByLogId.get(log.id) === 1 ? '' : 's'}
+                      </Badge>
                     )}
                     <Badge variant="outline">{log.source}</Badge>
                     <span className="text-muted-foreground text-xs">

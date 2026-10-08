@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/supabase/admin'
+import { checkIngestionSecret } from '@/utils/integrations/auth'
 import { ingestFormSubmission } from '@/utils/scheduler/ingest-submission'
 
 /**
@@ -33,6 +34,12 @@ import { ingestFormSubmission } from '@/utils/scheduler/ingest-submission'
  *   free_notes            — string
  *   escalate_to_volecule  — boolean, or a "yes"/"true"/"escalate" string
  *
+ * Photos are NOT sent here. After this call succeeds, Apps Script uploads
+ * them via ./photos/sign and ./photos/attach (see those routes and the
+ * "Site Photo Storage" design doc); the top-level photos_drive field it
+ * adds to this body is just the Drive file ids, kept in source_payload_json
+ * so a photo that fails to sync can be recovered.
+ *
  * The actual log-upsert + schedule-propagation logic lives in
  * src/utils/scheduler/ingest-submission.ts, shared with the date-override
  * testing console (spec §11 item 2) so both go through the exact same
@@ -40,20 +47,8 @@ import { ingestFormSubmission } from '@/utils/scheduler/ingest-submission'
  */
 export async function POST(req: NextRequest) {
   // 1. Shared secret check
-  const secret = req.headers.get('x-volecule-secret')
-  const expectedSecret = process.env.INGESTION_SHARED_SECRET
-
-  if (!expectedSecret) {
-    console.error('[ingestion] INGESTION_SHARED_SECRET is not set')
-    return NextResponse.json(
-      { error: 'Server misconfiguration' },
-      { status: 500 },
-    )
-  }
-
-  if (!secret || secret !== expectedSecret) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  const unauthorized = checkIngestionSecret(req)
+  if (unauthorized) return unauthorized
 
   // 2. Parse body
   let body: Record<string, unknown>
