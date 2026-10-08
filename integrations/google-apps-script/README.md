@@ -4,15 +4,26 @@ Source of truth for the Apps Script behind the morning and evening forms. The
 live copies are pasted into each form's own Apps Script project; keep this
 folder in step with them.
 
-| File                 | Goes in                                     |
-| -------------------- | ------------------------------------------- |
-| `morning-form.gs`    | the morning form's script, as the main file |
-| `evening-form.gs`    | the evening form's script, as the main file |
-| `volecule-common.gs` | **both** projects, as an extra file         |
-| `volecule-photos.gs` | **both** projects, as an extra file         |
+**"Project" here means an Apps Script project, not a Volecule site project.**
+Every Google Form has its own Apps Script project (open the form, then
+⋮ → **Script editor**). There are two to set up: the morning form's and the
+evening form's. An **extra file** is a further file inside one of those
+projects, next to the main script (in the editor: **+** beside **Files** →
+**Script**, name it, paste the code). Files in the same project share one
+scope, so the main script can call the helpers directly.
+
+| File                 | Goes in                                                  |
+| -------------------- | -------------------------------------------------------- |
+| `morning-form.gs`    | the morning form's Apps Script project, as the main file |
+| `evening-form.gs`    | the evening form's Apps Script project, as the main file |
+| `volecule-common.gs` | **each** form's Apps Script project, as an extra file    |
+| `volecule-photos.gs` | **each** form's Apps Script project, as an extra file    |
+
+When you're done, each form's project holds three files: its main script plus
+`volecule-common` and `volecule-photos`, identical in both.
 
 The `.gs` files here hold placeholders, never real values. Keep the secret and
-project code you already have in the live scripts.
+the Volecule project code you already have in the live scripts.
 
 ## Question titles are the weak spot
 
@@ -65,8 +76,8 @@ Compared with the scripts before photo storage, the main scripts:
    node scripts/verify-photo-upload.mjs
    ```
 
-4. Open the form → ⋮ → **Script editor**.
-   - Add two new files, `volecule-common` and `volecule-photos`, and paste
+4. Open the form → ⋮ → **Script editor** (this is the form's Apps Script project).
+   - Add two extra files, `volecule-common` and `volecule-photos`, and paste
      `volecule-common.gs` and `volecule-photos.gs` into them.
    - Run **`listFormQuestions`** once and read **Execution log**: it prints every
      question on the form with its exact title (stray spaces shown).
