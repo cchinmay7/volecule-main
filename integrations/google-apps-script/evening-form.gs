@@ -13,8 +13,8 @@ const SITE_CODE = '<PASTE PROJECT PUBLIC CODE>' // the project's code from its d
 // question this form doesn't have. A title that isn't on the form is reported
 // in the execution log on every submission instead of silently sending nothing.
 const QUESTIONS = {
-  achieved: 'Tick the tasks completed today as per the scheduler', // the tasks ticked as done today
-  notes: 'Evening notes',
+  achieved: 'The Tasks that were Completed today', // the tasks ticked as done today
+  notes: 'Evening Notes',
   siteEngineer: 'Site Engineer',
   headcount: {
     barbenders: 'Barbenders',
@@ -24,11 +24,14 @@ const QUESTIONS = {
     operators: 'Operators',
     others: 'Others',
   },
-  escalate: 'Escalate to Volecule?',
+  escalate: 'Escalate to Volecule',
 }
 
+// Question titles are matched ignoring capitalisation and extra spaces, so
+// "Evening notes" and "Evening Notes" are the same question. Wording and
+// punctuation still have to match.
 function normalizeKey(key) {
-  return String(key).trim().replace(/\s+/g, ' ')
+  return String(key).trim().replace(/\s+/g, ' ').toLowerCase()
 }
 
 function getNamedValuesFromEvent(e) {

@@ -91,18 +91,21 @@ function setup(
   }
 }
 
+// The evening form as listFormQuestions() printed it on the live form.
 const EVENING_QUESTIONS: Question[] = [
-  'Site Engineer',
-  'Barbenders',
-  'Carpenters',
-  'Masons',
-  'Helpers',
-  'Operators',
-  'Others',
-  'Tick the tasks completed today as per the scheduler',
-  'Escalate to Volecule?',
-  'Evening notes',
-].map((title) => ({ title, type: 'TEXT' }))
+  { title: 'Site Engineer', type: 'TEXT' },
+  { title: 'The Tasks that were Completed today', type: 'CHECKBOX' },
+  { title: 'Manpower - Actual( by team)', type: 'SECTION_HEADER' },
+  { title: 'Barbenders', type: 'TEXT' },
+  { title: 'Carpenters', type: 'TEXT' },
+  { title: 'Masons', type: 'TEXT' },
+  { title: 'Helpers', type: 'TEXT' },
+  { title: 'Operators', type: 'TEXT' },
+  { title: 'Others', type: 'TEXT' },
+  { title: 'Site Photo', type: 'FILE_UPLOAD' },
+  { title: 'Escalate to Volecule', type: 'MULTIPLE_CHOICE' },
+  { title: 'Evening Notes', type: 'PARAGRAPH_TEXT' },
+]
 
 describe('evening-form.gs', () => {
   const answers: Answer[] = [
@@ -110,11 +113,11 @@ describe('evening-form.gs', () => {
     { title: 'Masons', value: '4' },
     { title: 'Helpers', value: '6' },
     {
-      title: 'Tick the tasks completed today as per the scheduler',
+      title: 'The Tasks that were Completed today',
       value: ['W12 - Slab', 'W13 - Beam'],
     },
-    { title: 'Escalate to Volecule?', value: 'No' },
-    { title: 'Evening notes', value: 'Rain after lunch' },
+    { title: 'Escalate to Volecule', value: 'No' },
+    { title: 'Evening Notes', value: 'Rain after lunch' },
   ]
 
   it('sends the answers, headcount and project code to /submit', () => {
@@ -150,7 +153,7 @@ describe('evening-form.gs', () => {
     // the morning planning question's title instead of the completions
     // checklist, so every tick was silently dropped.
     const questions = EVENING_QUESTIONS.map((q) =>
-      q.title === 'Tick the tasks completed today as per the scheduler'
+      q.title === 'The Tasks that were Completed today'
         ? { ...q, title: 'Which of these will be completed by EOD today?' }
         : q,
     )
@@ -164,12 +167,41 @@ describe('evening-form.gs', () => {
 
     const log = logs.join('\n')
     expect(log).toContain('WARNING')
-    expect(log).toContain('Tick the tasks completed today as per the scheduler')
+    expect(log).toContain('The Tasks that were Completed today')
     // It lists what IS on the form, so the fix is a copy-paste.
     expect(log).toContain('Which of these will be completed by EOD today?')
     // The submission still goes out; the ticks are the part that is missed.
     expect(calls).toHaveLength(1)
     expect(calls[0].payload.form_values).toMatchObject({ targets_achieved: [] })
+  })
+
+  it('matches question titles ignoring capitalisation and extra spaces', () => {
+    // The form says "Evening Notes"; a script written "Evening notes" still finds it.
+    const questions = EVENING_QUESTIONS.map((q) =>
+      q.title === 'Evening Notes' ? { ...q, title: '  EVENING   notes ' } : q,
+    )
+    const { run, calls, logs } = setup('evening-form.gs', questions, [
+      { title: '  EVENING   notes ', value: 'Rain after lunch' },
+    ])
+    run()
+
+    expect(calls[0].payload.form_values).toMatchObject({
+      free_notes: 'Rain after lunch',
+    })
+    expect(logs.join('\n')).not.toContain('WARNING')
+  })
+
+  it('records the uploaded photo question and its Drive file id with the log', () => {
+    const { run, calls } = setup('evening-form.gs', EVENING_QUESTIONS, [
+      ...answers,
+      { title: 'Site Photo', value: ['drive-file-1', 'drive-file-2'] },
+    ])
+    run()
+
+    expect(calls[0].payload.photos_drive).toEqual([
+      { drive_file_id: 'drive-file-1', question: 'Site Photo' },
+      { drive_file_id: 'drive-file-2', question: 'Site Photo' },
+    ])
   })
 
   it('skips photo sync when the form data is rejected', () => {

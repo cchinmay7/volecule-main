@@ -32,8 +32,11 @@ const QUESTIONS = {
   blocker: 'Anticipated Blocker',
 }
 
+// Question titles are matched ignoring capitalisation and extra spaces, so
+// "Evening notes" and "Evening Notes" are the same question. Wording and
+// punctuation still have to match.
 function normalizeKey(key) {
-  return String(key).trim().replace(/\s+/g, ' ')
+  return String(key).trim().replace(/\s+/g, ' ').toLowerCase()
 }
 
 function getNamedValuesFromEvent(e) {
