@@ -452,6 +452,137 @@ async function snapshotVersion(
   return { ok: true }
 }
 
+type TaskUpdate = {
+  id: string
+  values: Record<string, string | number | null>
+}
+
+const TASK_UPDATE_CONCURRENCY = 10
+
+/** Applies per-row updates to schedule_tasks concurrently, a chunk at a
+ * time. Each update targets a different row with different values, so
+ * PostgREST has no bulk form for it — but awaiting them one by one made a
+ * 49-task cascade take ~22s against a Supabase project in a far-away
+ * region (one ~0.45s round trip per row), which left the Refresh button
+ * hanging until the operator reloaded the page. Running a chunk in
+ * parallel cuts that to a handful of round trips. Stops at the first
+ * failed chunk, same as the sequential loops this replaces. */
+async function updateTasksById(
+  supabase: SupabaseClient,
+  updates: TaskUpdate[],
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  for (let i = 0; i < updates.length; i += TASK_UPDATE_CONCURRENCY) {
+    const chunk = updates.slice(i, i + TASK_UPDATE_CONCURRENCY)
+    const results = await Promise.all(
+      chunk.map(({ id, values }) =>
+        supabase.from('schedule_tasks').update(values).eq('id', id),
+      ),
+    )
+    const failed = results.find((result) => result.error)
+    if (failed?.error) {
+      return { ok: false, error: failed.error.message }
+    }
+  }
+  return { ok: true }
+}
+
+/**
+ * The write tail shared by every push-style propagation (delayed end,
+ * confirmed start, delayed start): apply the root tasks' own updates, cut
+ * the schedule version, then write the cascaded dependents' new dates and
+ * the revision rows together, then snapshot. `rootRevisions` carries the
+ * roots' own revision rows without a version id — it isn't known until
+ * the version is cut here.
+ *
+ * Root updates land before the cascade updates on purpose: a root that is
+ * also downstream of another root in the same batch is written by both,
+ * and the cascade's dates must win, as they did when this was sequential.
+ */
+async function persistPropagation({
+  supabase,
+  projectId,
+  versionLabel,
+  rootUpdates,
+  rootRevisions,
+  cascadeChanges,
+  originalState,
+  changeReason,
+  triggerProjectLogId,
+  missReason,
+}: {
+  supabase: SupabaseClient
+  projectId: string
+  versionLabel: string
+  rootUpdates: TaskUpdate[]
+  rootRevisions: Omit<RevisionInsert, 'schedule_version_id'>[]
+  cascadeChanges: CascadeChange[]
+  originalState: Map<string, TaskState>
+  changeReason: ChangeReason
+  triggerProjectLogId: string | null
+  missReason: string | null
+}): Promise<
+  | { ok: true; versionNumber: number; cascadedCount: number }
+  | { ok: false; error: string }
+> {
+  const rootUpdateResult = await updateTasksById(supabase, rootUpdates)
+  if (!rootUpdateResult.ok) return rootUpdateResult
+
+  const version = await createPropagationVersion(
+    supabase,
+    projectId,
+    versionLabel,
+  )
+  if (!version.ok) return { ok: false, error: version.error }
+
+  const { revisions: cascadeRevisions, finalByTask } = buildRevisions(
+    cascadeChanges,
+    originalState,
+    version.id,
+    changeReason,
+    triggerProjectLogId,
+    missReason,
+  )
+
+  const allRevisions: RevisionInsert[] = [
+    ...rootRevisions.map((revision) => ({
+      ...revision,
+      schedule_version_id: version.id,
+    })),
+    ...cascadeRevisions,
+  ]
+
+  const cascadeUpdates: TaskUpdate[] = Array.from(
+    finalByTask,
+    ([id, change]) => ({
+      id,
+      values: {
+        current_planned_start: change.newStart,
+        current_planned_end: change.newEnd,
+      },
+    }),
+  )
+
+  const [cascadeResult, revisionsResult] = await Promise.all([
+    updateTasksById(supabase, cascadeUpdates),
+    allRevisions.length > 0
+      ? supabase.from('schedule_task_revisions').insert(allRevisions)
+      : Promise.resolve({ error: null }),
+  ])
+  if (!cascadeResult.ok) return cascadeResult
+  if (revisionsResult.error) {
+    return { ok: false, error: revisionsResult.error.message }
+  }
+
+  const snapshot = await snapshotVersion(supabase, projectId, version.id)
+  if (!snapshot.ok) return { ok: false, error: snapshot.error }
+
+  return {
+    ok: true,
+    versionNumber: version.versionNumber,
+    cascadedCount: finalByTask.size,
+  }
+}
+
 /**
  * Marks one or more already-started tasks delayed-to-finish and cascades
  * the resulting slip forward through the dependency graph.
@@ -583,25 +714,30 @@ export async function applyDelayedEnds({
   // not-yet-updated current_planned_end.
   const originalState = graph.tasks
 
-  const newEndByRoot = new Map<string, string>()
+  const rootUpdates: TaskUpdate[] = []
+  const rootRevisions: Omit<RevisionInsert, 'schedule_version_id'>[] = []
   const seeds: CascadeSeed[] = []
   for (const root of rootTasks) {
     const pushDays = catchupPushDays(root.current_planned_end, asOfDate)
     const newEnd = addDaysIso(root.current_planned_end, pushDays)
-    newEndByRoot.set(root.id, newEnd)
 
-    const { error: updateError } = await supabase
-      .from('schedule_tasks')
-      .update({
+    rootUpdates.push({
+      id: root.id,
+      values: {
         current_planned_end: newEnd,
         duration_days: root.duration_days + pushDays,
-      })
-      .eq('id', root.id)
-
-    if (updateError) {
-      return { success: false, error: updateError.message }
-    }
-
+      },
+    })
+    rootRevisions.push({
+      task_id: root.id,
+      previous_start: root.current_planned_start,
+      previous_end: root.current_planned_end,
+      new_start: root.current_planned_start,
+      new_end: newEnd,
+      change_reason: 'delayed_end',
+      trigger_project_log_id: triggerProjectLogId,
+      miss_reason: missReason,
+    })
     seeds.push({ taskId: root.id, newEnd })
   }
 
@@ -613,69 +749,26 @@ export async function applyDelayedEnds({
     '', // today is unused in 'push' mode
   )
 
-  const version = await createPropagationVersion(
+  const persisted = await persistPropagation({
     supabase,
     projectId,
-    `Delayed: ${delayedTaskIds.length} target(s)`,
-  )
-  if (!version.ok) {
-    return { success: false, error: version.error }
-  }
-
-  const { revisions: cascadeRevisions, finalByTask } = buildRevisions(
+    versionLabel: `Delayed: ${delayedTaskIds.length} target(s)`,
+    rootUpdates,
+    rootRevisions,
     cascadeChanges,
     originalState,
-    version.id,
-    'delayed_end',
+    changeReason: 'delayed_end',
     triggerProjectLogId,
     missReason,
-  )
-
-  const rootRevisions: RevisionInsert[] = rootTasks.map((root) => ({
-    task_id: root.id,
-    schedule_version_id: version.id,
-    previous_start: root.current_planned_start,
-    previous_end: root.current_planned_end,
-    new_start: root.current_planned_start,
-    new_end: newEndByRoot.get(root.id) as string,
-    change_reason: 'delayed_end',
-    trigger_project_log_id: triggerProjectLogId,
-    miss_reason: missReason,
-  }))
-
-  for (const [taskId, change] of finalByTask) {
-    const { error: updateError } = await supabase
-      .from('schedule_tasks')
-      .update({
-        current_planned_start: change.newStart,
-        current_planned_end: change.newEnd,
-      })
-      .eq('id', taskId)
-
-    if (updateError) {
-      return { success: false, error: updateError.message }
-    }
-  }
-
-  const allRevisions = [...rootRevisions, ...cascadeRevisions]
-  if (allRevisions.length > 0) {
-    const { error: revisionsError } = await supabase
-      .from('schedule_task_revisions')
-      .insert(allRevisions)
-    if (revisionsError) {
-      return { success: false, error: revisionsError.message }
-    }
-  }
-
-  const snapshot = await snapshotVersion(supabase, projectId, version.id)
-  if (!snapshot.ok) {
-    return { success: false, error: snapshot.error }
+  })
+  if (!persisted.ok) {
+    return { success: false, error: persisted.error }
   }
 
   return {
     success: true,
-    versionNumber: version.versionNumber,
-    tasksChanged: rootTasks.length + finalByTask.size,
+    versionNumber: persisted.versionNumber,
+    tasksChanged: rootTasks.length + persisted.cascadedCount,
   }
 }
 
@@ -731,23 +824,30 @@ export async function applyConfirmedStarts({
   }
   const originalState = graph.tasks
 
+  const rootUpdates: TaskUpdate[] = []
+  const rootRevisions: Omit<RevisionInsert, 'schedule_version_id'>[] = []
   const seeds: CascadeSeed[] = []
   for (const root of rootTasks) {
     const newEnd = addDaysIso(confirmedDate, root.duration_days)
 
-    const { error: updateError } = await supabase
-      .from('schedule_tasks')
-      .update({
+    rootUpdates.push({
+      id: root.id,
+      values: {
         current_planned_start: confirmedDate,
         current_planned_end: newEnd,
         actual_start: confirmedDate,
-      })
-      .eq('id', root.id)
-
-    if (updateError) {
-      return { success: false, error: updateError.message }
-    }
-
+      },
+    })
+    rootRevisions.push({
+      task_id: root.id,
+      previous_start: root.current_planned_start,
+      previous_end: root.current_planned_end,
+      new_start: confirmedDate,
+      new_end: newEnd,
+      change_reason: changeReason,
+      trigger_project_log_id: triggerProjectLogId,
+      miss_reason: null,
+    })
     seeds.push({ taskId: root.id, newEnd })
   }
 
@@ -759,69 +859,26 @@ export async function applyConfirmedStarts({
     '', // today is unused in 'push' mode
   )
 
-  const version = await createPropagationVersion(
+  const persisted = await persistPropagation({
     supabase,
     projectId,
-    `Confirmed start: ${confirmedTaskIds.length} task(s)`,
-  )
-  if (!version.ok) {
-    return { success: false, error: version.error }
-  }
-
-  const { revisions: cascadeRevisions, finalByTask } = buildRevisions(
+    versionLabel: `Confirmed start: ${confirmedTaskIds.length} task(s)`,
+    rootUpdates,
+    rootRevisions,
     cascadeChanges,
     originalState,
-    version.id,
     changeReason,
     triggerProjectLogId,
-    null,
-  )
-
-  const rootRevisions: RevisionInsert[] = rootTasks.map((root) => ({
-    task_id: root.id,
-    schedule_version_id: version.id,
-    previous_start: root.current_planned_start,
-    previous_end: root.current_planned_end,
-    new_start: confirmedDate,
-    new_end: addDaysIso(confirmedDate, root.duration_days),
-    change_reason: changeReason,
-    trigger_project_log_id: triggerProjectLogId,
-    miss_reason: null,
-  }))
-
-  for (const [taskId, change] of finalByTask) {
-    const { error: updateError } = await supabase
-      .from('schedule_tasks')
-      .update({
-        current_planned_start: change.newStart,
-        current_planned_end: change.newEnd,
-      })
-      .eq('id', taskId)
-
-    if (updateError) {
-      return { success: false, error: updateError.message }
-    }
-  }
-
-  const allRevisions = [...rootRevisions, ...cascadeRevisions]
-  if (allRevisions.length > 0) {
-    const { error: revisionsError } = await supabase
-      .from('schedule_task_revisions')
-      .insert(allRevisions)
-    if (revisionsError) {
-      return { success: false, error: revisionsError.message }
-    }
-  }
-
-  const snapshot = await snapshotVersion(supabase, projectId, version.id)
-  if (!snapshot.ok) {
-    return { success: false, error: snapshot.error }
+    missReason: null,
+  })
+  if (!persisted.ok) {
+    return { success: false, error: persisted.error }
   }
 
   return {
     success: true,
-    versionNumber: version.versionNumber,
-    tasksChanged: rootTasks.length + finalByTask.size,
+    versionNumber: persisted.versionNumber,
+    tasksChanged: rootTasks.length + persisted.cascadedCount,
   }
 }
 
@@ -878,26 +935,31 @@ export async function applyDelayedStarts({
   }
   const originalState = graph.tasks
 
-  const newDatesByRoot = new Map<string, { start: string; end: string }>()
+  const rootUpdates: TaskUpdate[] = []
+  const rootRevisions: Omit<RevisionInsert, 'schedule_version_id'>[] = []
   const seeds: CascadeSeed[] = []
   for (const root of rootTasks) {
     const pushDays = catchupPushDays(root.current_planned_start, asOfDate)
     const newStart = addDaysIso(root.current_planned_start, pushDays)
     const newEnd = addDaysIso(root.current_planned_end, pushDays)
-    newDatesByRoot.set(root.id, { start: newStart, end: newEnd })
 
-    const { error: updateError } = await supabase
-      .from('schedule_tasks')
-      .update({
+    rootUpdates.push({
+      id: root.id,
+      values: {
         current_planned_start: newStart,
         current_planned_end: newEnd,
-      })
-      .eq('id', root.id)
-
-    if (updateError) {
-      return { success: false, error: updateError.message }
-    }
-
+      },
+    })
+    rootRevisions.push({
+      task_id: root.id,
+      previous_start: root.current_planned_start,
+      previous_end: root.current_planned_end,
+      new_start: newStart,
+      new_end: newEnd,
+      change_reason: 'delayed_start',
+      trigger_project_log_id: triggerProjectLogId,
+      miss_reason: missReason,
+    })
     seeds.push({ taskId: root.id, newEnd })
   }
 
@@ -909,75 +971,26 @@ export async function applyDelayedStarts({
     '', // today is unused in 'push' mode
   )
 
-  const version = await createPropagationVersion(
+  const persisted = await persistPropagation({
     supabase,
     projectId,
-    `Delayed start: ${delayedStartTaskIds.length} task(s)`,
-  )
-  if (!version.ok) {
-    return { success: false, error: version.error }
-  }
-
-  const { revisions: cascadeRevisions, finalByTask } = buildRevisions(
+    versionLabel: `Delayed start: ${delayedStartTaskIds.length} task(s)`,
+    rootUpdates,
+    rootRevisions,
     cascadeChanges,
     originalState,
-    version.id,
-    'delayed_start',
+    changeReason: 'delayed_start',
     triggerProjectLogId,
     missReason,
-  )
-
-  const rootRevisions: RevisionInsert[] = rootTasks.map((root) => {
-    const newDates = newDatesByRoot.get(root.id) as {
-      start: string
-      end: string
-    }
-    return {
-      task_id: root.id,
-      schedule_version_id: version.id,
-      previous_start: root.current_planned_start,
-      previous_end: root.current_planned_end,
-      new_start: newDates.start,
-      new_end: newDates.end,
-      change_reason: 'delayed_start',
-      trigger_project_log_id: triggerProjectLogId,
-      miss_reason: missReason,
-    }
   })
-
-  for (const [taskId, change] of finalByTask) {
-    const { error: updateError } = await supabase
-      .from('schedule_tasks')
-      .update({
-        current_planned_start: change.newStart,
-        current_planned_end: change.newEnd,
-      })
-      .eq('id', taskId)
-
-    if (updateError) {
-      return { success: false, error: updateError.message }
-    }
-  }
-
-  const allRevisions = [...rootRevisions, ...cascadeRevisions]
-  if (allRevisions.length > 0) {
-    const { error: revisionsError } = await supabase
-      .from('schedule_task_revisions')
-      .insert(allRevisions)
-    if (revisionsError) {
-      return { success: false, error: revisionsError.message }
-    }
-  }
-
-  const snapshot = await snapshotVersion(supabase, projectId, version.id)
-  if (!snapshot.ok) {
-    return { success: false, error: snapshot.error }
+  if (!persisted.ok) {
+    return { success: false, error: persisted.error }
   }
 
   return {
     success: true,
-    versionNumber: version.versionNumber,
-    tasksChanged: rootTasks.length + finalByTask.size,
+    versionNumber: persisted.versionNumber,
+    tasksChanged: rootTasks.length + persisted.cascadedCount,
   }
 }
 
@@ -1049,7 +1062,7 @@ export async function applyTaskCompletions({
 
   const earlySeeds: CascadeSeed[] = []
   const lateSeeds: CascadeSeed[] = []
-  let updatedCount = 0
+  const completionUpdates: TaskUpdate[] = []
 
   for (const completion of completions) {
     const row = rowsById.get(completion.taskId)
@@ -1057,7 +1070,7 @@ export async function applyTaskCompletions({
 
     const isEarly = completion.actualEnd < row.current_planned_end
     const isLate = completion.actualEnd > row.current_planned_end
-    const update: Record<string, string | number> = {
+    const update: TaskUpdate['values'] = {
       status: 'done',
       actual_end: completion.actualEnd,
     }
@@ -1077,15 +1090,7 @@ export async function applyTaskCompletions({
       update.duration_days = row.duration_days + growDays
     }
 
-    const { error: updateError } = await supabase
-      .from('schedule_tasks')
-      .update(update)
-      .eq('id', completion.taskId)
-
-    if (updateError) {
-      return { success: false, error: updateError.message }
-    }
-    updatedCount += 1
+    completionUpdates.push({ id: completion.taskId, values: update })
 
     if (isEarly) {
       earlySeeds.push({
@@ -1099,6 +1104,15 @@ export async function applyTaskCompletions({
       })
     }
   }
+
+  // Written before the graph is fetched below, as before — the graph then
+  // reflects each completed task's reconciled end, which is what the
+  // cascade's "previous" revision values are meant to start from.
+  const completionResult = await updateTasksById(supabase, completionUpdates)
+  if (!completionResult.ok) {
+    return { success: false, error: completionResult.error }
+  }
+  const updatedCount = completionUpdates.length
 
   if (earlySeeds.length === 0 && lateSeeds.length === 0) {
     return { success: true, versionNumber: null, tasksChanged: updatedCount }
@@ -1171,27 +1185,28 @@ export async function applyTaskCompletions({
   const finalByTask = new Map([...pushFinal, ...pullFinal])
   const revisions = [...pushRevisions, ...pullRevisions]
 
-  for (const [taskId, change] of finalByTask) {
-    const { error: updateError } = await supabase
-      .from('schedule_tasks')
-      .update({
+  const cascadeUpdates: TaskUpdate[] = Array.from(
+    finalByTask,
+    ([id, change]) => ({
+      id,
+      values: {
         current_planned_start: change.newStart,
         current_planned_end: change.newEnd,
-      })
-      .eq('id', taskId)
+      },
+    }),
+  )
 
-    if (updateError) {
-      return { success: false, error: updateError.message }
-    }
+  const [cascadeResult, revisionsResult] = await Promise.all([
+    updateTasksById(supabase, cascadeUpdates),
+    revisions.length > 0
+      ? supabase.from('schedule_task_revisions').insert(revisions)
+      : Promise.resolve({ error: null }),
+  ])
+  if (!cascadeResult.ok) {
+    return { success: false, error: cascadeResult.error }
   }
-
-  if (revisions.length > 0) {
-    const { error: revisionsError } = await supabase
-      .from('schedule_task_revisions')
-      .insert(revisions)
-    if (revisionsError) {
-      return { success: false, error: revisionsError.message }
-    }
+  if (revisionsResult.error) {
+    return { success: false, error: revisionsResult.error.message }
   }
 
   const snapshot = await snapshotVersion(supabase, projectId, version.id)
