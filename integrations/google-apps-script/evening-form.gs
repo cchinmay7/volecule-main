@@ -1,6 +1,7 @@
 // Evening form — Apps Script (form-bound, installable "On form submit" trigger).
 // Also add volecule-common.gs and volecule-photos.gs to this project; they
-// provide the question check and syncFormPhotos(). See README.md.
+// provide the question check and photo copying. Submissions are sent even if a
+// helper file is missing; the execution log says which. See README.md.
 
 const INGEST_URL =
   'https://volecule-main.vercel.app/api/integrations/google-forms/submit'
@@ -77,8 +78,45 @@ function allValues(namedValues, key) {
   )
 }
 
+// The submission must never depend on the helper files. If volecule-common or
+// volecule-photos is missing from this project (not added, or the wrong code
+// pasted into it) the form data is still sent, and the log says what to add.
+function checkQuestionTitles_() {
+  if (typeof warnAboutMissingQuestions_ === 'function') {
+    warnAboutMissingQuestions_(QUESTIONS)
+  } else {
+    Logger.log(
+      'NOTE: volecule-common is missing from this project, so question titles are not being checked. Add it as a file named volecule-common.',
+    )
+  }
+}
+
+function photoFilesForPayload_(e) {
+  return typeof listPhotoFilesSafely === 'function'
+    ? listPhotoFilesSafely(e)
+    : []
+}
+
+function syncPhotosIfPossible_(e, externalId) {
+  if (typeof syncFormPhotos === 'function') {
+    syncFormPhotos(e, externalId)
+  } else {
+    Logger.log(
+      'NOTE: volecule-photos is missing from this project, so photos are not being copied. Add it as a file named volecule-photos.',
+    )
+  }
+}
+
+function readHeadcount_(namedValues) {
+  const headcount = {}
+  Object.keys(QUESTIONS.headcount).forEach(function (team) {
+    headcount[team] = firstValue(namedValues, QUESTIONS.headcount[team])
+  })
+  return headcount
+}
+
 function onFormSubmit(e) {
-  warnAboutMissingQuestions_(QUESTIONS)
+  checkQuestionTitles_()
   const namedValues = getNamedValuesFromEvent(e)
 
   const submittedAt = e.response
@@ -97,11 +135,7 @@ function onFormSubmit(e) {
       site_engineer: QUESTIONS.siteEngineer
         ? firstValue(namedValues, QUESTIONS.siteEngineer)
         : null,
-      headcount: QUESTIONS.headcount
-        ? mapObject_(QUESTIONS.headcount, (title) =>
-            firstValue(namedValues, title),
-          )
-        : null,
+      headcount: QUESTIONS.headcount ? readHeadcount_(namedValues) : null,
       targets_achieved: allValues(namedValues, QUESTIONS.achieved),
       escalate_to_volecule: QUESTIONS.escalate
         ? firstValue(namedValues, QUESTIONS.escalate)
@@ -110,7 +144,7 @@ function onFormSubmit(e) {
     },
     // Drive file ids of every uploaded photo, kept with the log so a photo
     // that fails to sync below can always be recovered from Drive.
-    photos_drive: listPhotoFilesSafely(e),
+    photos_drive: photoFilesForPayload_(e),
   }
 
   const res = UrlFetchApp.fetch(INGEST_URL, {
@@ -126,7 +160,7 @@ function onFormSubmit(e) {
 
   // Photos attach to the log, so only sync them once the log was accepted.
   if (res.getResponseCode() === 200) {
-    syncFormPhotos(e, externalId)
+    syncPhotosIfPossible_(e, externalId)
   } else {
     Logger.log('Skipping photo sync: the form data was not accepted.')
   }

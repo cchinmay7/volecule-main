@@ -100,15 +100,33 @@ Compared with the scripts before photo storage, the main scripts:
 
 ## Troubleshooting
 
-| Log line                                              | Meaning / fix                                                                         |
-| ----------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| `Skipping photo sync: the form data was not accepted` | `/submit` failed first (wrong secret or project code). Photos wait; fix and resubmit. |
-| `Photo signing failed (401)`                          | `INGEST_SECRET` doesn't match `INGESTION_SHARED_SECRET` in Vercel.                    |
-| `Photo signing failed (404)`                          | No log for this submission yet — `/submit` didn't store it.                           |
-| `Photo … rejected: unsupported_type` / `too_large`    | Only JPEG/PNG/WebP/HEIC/HEIF up to 20 MB are stored. The original stays in Drive.     |
-| `Photo … upload failed (4xx)`                         | Storage refused the PUT — run `scripts/verify-photo-upload.mjs` to see why.           |
-| `Photo … cannot read from Drive`                      | The authorise step (6) wasn't done, or the script owner can't open the form's files.  |
-| `WARNING: these questions are not on this form`       | A title in `QUESTIONS` doesn't match the form. The log lists the form's real titles.  |
+| Log line                                                                                    | Meaning / fix                                                                                                                                                                     |
+| ------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Skipping photo sync: the form data was not accepted`                                       | `/submit` failed first (wrong secret or project code). Photos wait; fix and resubmit.                                                                                             |
+| `Photo signing failed (401)`                                                                | `INGEST_SECRET` doesn't match `INGESTION_SHARED_SECRET` in Vercel.                                                                                                                |
+| `Photo signing failed (404)`                                                                | No log for this submission yet — `/submit` didn't store it.                                                                                                                       |
+| `Photo … rejected: unsupported_type` / `too_large`                                          | Only JPEG/PNG/WebP/HEIC/HEIF up to 20 MB are stored. The original stays in Drive.                                                                                                 |
+| `Photo … upload failed (4xx)`                                                               | Storage refused the PUT — run `scripts/verify-photo-upload.mjs` to see why.                                                                                                       |
+| `Photo … cannot read from Drive`                                                            | The authorise step (6) wasn't done, or the script owner can't open the form's files.                                                                                              |
+| `WARNING: these questions are not on this form`                                             | A title in `QUESTIONS` doesn't match the form. The log lists the form's real titles.                                                                                              |
+| `NOTE: volecule-common is missing from this project` / `NOTE: volecule-photos is missing …` | That helper isn't loaded in this form's Apps Script project, so titles aren't checked / photos aren't copied. The form data is still sent. See "If a helper isn't loading" below. |
+| `ReferenceError: … is not defined` (older scripts only)                                     | The old main scripts stopped at this line when a helper wasn't loaded, so the submission was lost. Paste the current main script, which sends the data regardless.                |
+
+## If a helper isn't loading
+
+The main scripts send the form data whether or not the helper files work. If the
+log says a helper is missing, check these in that form's Apps Script project:
+
+1. **Files** (left sidebar) lists `volecule-common` and `volecule-photos` next to
+   the main script. They must be in the _same_ project as the main script, so the
+   morning form's helpers go in the morning project and the evening form's in the
+   evening project.
+2. The **function dropdown** at the top of the editor lists `listFormQuestions`
+   (from `volecule-common`) and `authorizeVoleculePhotos` (from `volecule-photos`).
+   If one is missing, that file doesn't contain the right code: open it, search
+   for the function name, and paste the file again from this folder.
+3. Press **Save** (Ctrl+S) on every file. A form-submit trigger runs the last
+   _saved_ code, not what is currently on screen.
 
 ## Rotating the shared secret
 
