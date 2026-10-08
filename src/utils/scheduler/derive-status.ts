@@ -13,7 +13,7 @@
  * task's dates without also updating the word describing it.
  *
  * Used everywhere a task's effective status matters: the scheduler page,
- * the ingestion route's eligibility checks, and the test console — all
+ * the ingestion route's eligibility checks, and the Updates page — all
  * through this one function, so the three can't drift apart the way
  * spec §11 item 1 found the old predecessor-only in_progress check had.
  */

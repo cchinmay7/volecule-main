@@ -3,6 +3,11 @@
 import { revalidatePath } from 'next/cache'
 
 import { createClient } from '@/supabase/server'
+import { createAdminClient } from '@/supabase/admin'
+import {
+  listProjectPhotoPaths,
+  removePhotoObjects,
+} from '@/utils/photos/photo-storage'
 import { buildReminderMessage, sendWhatsAppTemplate } from '@/utils/reminders'
 import {
   generatePublicCode,
@@ -367,6 +372,10 @@ export async function deleteProjectAction(
     }
   }
 
+  // The database cascade removes the photo rows but not the stored
+  // objects, so note where they are before the rows disappear.
+  const photoPaths = await listProjectPhotoPaths(supabase, [projectId])
+
   // Deleting a project never touches its site (or any sibling projects
   // under it) — a site precedes its projects, not the other way round,
   // so it always outlives them.
@@ -386,6 +395,10 @@ export async function deleteProjectAction(
       success: false,
       error: 'Project exists but could not be deleted due to database policy.',
     }
+  }
+
+  if (photoPaths.length > 0) {
+    await removePhotoObjects(createAdminClient(), photoPaths)
   }
 
   revalidatePath('/protected')
@@ -433,6 +446,17 @@ export async function deleteSiteAction(
     }
   }
 
+  // The cascade below removes photo rows but not the stored objects, so
+  // note where every project's photos are before the rows disappear.
+  const { data: siteProjects } = await supabase
+    .from('projects')
+    .select('id')
+    .eq('site_id', siteId)
+  const photoPaths = await listProjectPhotoPaths(
+    supabase,
+    (siteProjects ?? []).map((project) => project.id as string),
+  )
+
   // A site precedes its projects (one site, many projects). Deleting it
   // deletes every project under it via projects.site_id's real
   // on-delete-cascade FK — and, transitively, each of those projects' own
@@ -454,6 +478,10 @@ export async function deleteSiteAction(
       success: false,
       error: 'Site exists but could not be deleted due to database policy.',
     }
+  }
+
+  if (photoPaths.length > 0) {
+    await removePhotoObjects(createAdminClient(), photoPaths)
   }
 
   revalidatePath('/protected')

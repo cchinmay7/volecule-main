@@ -3,6 +3,12 @@ import { notFound } from 'next/navigation'
 import { connection } from 'next/server'
 import { unstable_noStore as noStore } from 'next/cache'
 import { createClient } from '@/supabase/server'
+import { createAdminClient } from '@/supabase/admin'
+import {
+  BROWSER_RENDERABLE_MIME_TYPES,
+  PHOTO_BUCKET,
+} from '@/utils/photos/photo-naming'
+import { getPhotoReadUrls } from '@/utils/photos/photo-storage'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -34,6 +40,23 @@ type SiteRow = {
   id: string
   name: string
   client_name: string
+}
+
+type PhotoRow = {
+  id: string
+  storage_path: string
+  sequence: number
+  original_filename: string | null
+  mime_type: string
+  size_bytes: number | null
+  question: string | null
+}
+
+function formatBytes(bytes: number | null): string {
+  if (bytes === null) return ''
+  return bytes >= 1024 * 1024
+    ? `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+    : `${Math.max(1, Math.round(bytes / 1024))} KB`
 }
 
 type LogDetailsPageProps = {
@@ -80,6 +103,27 @@ export default async function LogDetailsPage({ params }: LogDetailsPageProps) {
     : { data: null as SiteRow | null }
 
   const typedLog = log as LogRow
+
+  // Photos live in a table added after the original schema; if it doesn't
+  // exist yet (db/photos_v1.sql not run) the log still renders, just
+  // without a photo section.
+  const { data: photoData } = await supabase
+    .from('project_log_photos')
+    .select(
+      'id, storage_path, sequence, original_filename, mime_type, size_bytes, question',
+    )
+    .eq('project_log_id', logId)
+    .eq('storage_bucket', PHOTO_BUCKET)
+    .order('sequence', { ascending: true })
+
+  const photos = (photoData ?? []) as PhotoRow[]
+  const photoUrls =
+    photos.length > 0
+      ? await getPhotoReadUrls(
+          createAdminClient(),
+          photos.map((photo) => photo.storage_path),
+        )
+      : new Map<string, string>()
 
   return (
     <div className="space-y-4">
@@ -154,6 +198,61 @@ export default async function LogDetailsPage({ params }: LogDetailsPageProps) {
               {typedLog.free_notes ?? '--'}
             </p>
           </section>
+
+          {photos.length > 0 && (
+            <section className="space-y-2">
+              <p className="font-medium">Photos ({photos.length})</p>
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                {photos.map((photo) => {
+                  const url = photoUrls.get(photo.storage_path)
+                  const renderable = BROWSER_RENDERABLE_MIME_TYPES.includes(
+                    photo.mime_type,
+                  )
+                  const fileName = photo.storage_path.split('/').pop()
+
+                  return (
+                    <figure key={photo.id} className="space-y-1">
+                      {url && renderable ? (
+                        <a href={url} target="_blank" rel="noreferrer">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={url}
+                            alt={photo.original_filename ?? fileName}
+                            loading="lazy"
+                            className="bg-muted aspect-square w-full rounded-md border object-cover"
+                          />
+                        </a>
+                      ) : (
+                        <div className="bg-muted text-muted-foreground flex aspect-square w-full items-center justify-center rounded-md border p-2 text-center text-xs">
+                          {url ? (
+                            <a
+                              href={url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="underline"
+                            >
+                              Open {photo.mime_type.replace('image/', '')} file
+                            </a>
+                          ) : (
+                            'Preview unavailable'
+                          )}
+                        </div>
+                      )}
+                      <figcaption className="text-muted-foreground text-xs">
+                        <span className="text-foreground font-mono">
+                          {fileName}
+                        </span>
+                        {photo.question && <> · {photo.question}</>}
+                        {photo.size_bytes !== null && (
+                          <> · {formatBytes(photo.size_bytes)}</>
+                        )}
+                      </figcaption>
+                    </figure>
+                  )
+                })}
+              </div>
+            </section>
+          )}
 
           <section className="space-y-2">
             <p className="font-medium">Raw payload</p>

@@ -1220,3 +1220,107 @@ export async function applyTaskCompletions({
     tasksChanged: updatedCount + finalByTask.size,
   }
 }
+
+export type ManualTaskValues = {
+  status?: 'pending' | 'done'
+  actual_start?: string | null
+  actual_end?: string | null
+  current_planned_start: string
+  current_planned_end: string
+  duration_days: number
+}
+
+/**
+ * Applies an operator's correction to one task and cascades the effect on
+ * its dependents — the primitive behind every action on the Updates page
+ * (mark done, reopen, set or clear a start, edit dates). The caller decides
+ * what the task's new state should be (and has validated it); this only
+ * persists it and keeps the rest of the plan consistent:
+ *
+ *  - end moved later  -> dependents are pushed (same relaxation a delay uses)
+ *  - end moved earlier -> dependents are pulled forward, but only where
+ *    every predecessor allows it (same relaxation an early finish uses)
+ *  - end unchanged    -> nothing downstream moves
+ *
+ * Everything lands in one new schedule version, with a 'manual_override'
+ * revision per moved task so the audit trail says it was a human, and the
+ * operator's note on the corrected task's own revision.
+ */
+export async function applyManualOverride({
+  supabase,
+  projectId,
+  taskId,
+  values,
+  versionLabel,
+  note,
+  today,
+}: {
+  supabase: SupabaseClient
+  projectId: string
+  taskId: string
+  values: ManualTaskValues
+  versionLabel: string
+  note: string | null
+  today: string
+}): Promise<PropagationOutcome> {
+  const graph = await fetchProjectGraph(supabase, projectId)
+  if (!graph.ok) {
+    return { success: false, error: graph.error }
+  }
+
+  const original = graph.tasks.get(taskId)
+  if (!original) {
+    return { success: false, error: 'Task not found in this project.' }
+  }
+
+  const newEnd = values.current_planned_end
+  const direction =
+    newEnd > original.currentEnd
+      ? 'push'
+      : newEnd < original.currentEnd
+        ? 'pull'
+        : null
+
+  const cascadeChanges = direction
+    ? computeCascade(
+        graph.tasks,
+        graph.edges,
+        [{ taskId, newEnd }],
+        direction,
+        today,
+      )
+    : []
+
+  const persisted = await persistPropagation({
+    supabase,
+    projectId,
+    versionLabel,
+    rootUpdates: [{ id: taskId, values }],
+    rootRevisions: [
+      {
+        task_id: taskId,
+        previous_start: original.currentStart,
+        previous_end: original.currentEnd,
+        new_start: values.current_planned_start,
+        new_end: values.current_planned_end,
+        change_reason: 'manual_override',
+        trigger_project_log_id: null,
+        miss_reason: note,
+      },
+    ],
+    cascadeChanges,
+    originalState: graph.tasks,
+    changeReason: 'manual_override',
+    triggerProjectLogId: null,
+    missReason: note,
+  })
+  if (!persisted.ok) {
+    return { success: false, error: persisted.error }
+  }
+
+  return {
+    success: true,
+    versionNumber: persisted.versionNumber,
+    tasksChanged: 1 + persisted.cascadedCount,
+  }
+}

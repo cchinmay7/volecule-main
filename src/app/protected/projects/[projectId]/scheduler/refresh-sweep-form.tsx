@@ -11,9 +11,7 @@ import { Button } from '@/components/ui/button'
  * the project's real current date, whatever the gap since the last real
  * form submission actually was (propagate.ts's catchupPushDays catches up
  * the whole gap in one step, so there's nothing an operator-chosen date
- * would add here). The date-override testing console has its own version
- * of this that does take a fake date, for exercising a gap without
- * waiting for real time to pass.
+ * would add here).
  */
 export function RefreshSweepForm({ projectId }: { projectId: string }) {
   const [state, formAction, pending] = useActionState(
