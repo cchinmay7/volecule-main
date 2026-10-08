@@ -8,10 +8,24 @@ folder in step with them.
 | -------------------- | -------------------------------------------- |
 | `morning-form.gs`    | the morning form's script, as the main file  |
 | `evening-form.gs`    | the evening form's script, as the main file  |
-| `volecule-photos.gs` | **both** projects, as a second file          |
+| `volecule-common.gs` | **both** projects, as an extra file          |
+| `volecule-photos.gs` | **both** projects, as an extra file          |
 
 The `.gs` files here hold placeholders, never real values. Keep the secret and
 project code you already have in the live scripts.
+
+## Question titles are the weak spot
+
+The scripts read each answer by its question **title**. A title that doesn't
+match the form exactly (copied from the other form, renamed, a stray space)
+doesn't raise an error; the answer is simply never found, so nothing is sent
+and nothing says why. That is how a form can submit happily for weeks while
+its headcount, or every completed-task tick, goes missing.
+
+So each main script keeps its titles in one `QUESTIONS` block at the top, and
+on every submission `volecule-common.gs` checks them against the form's real
+questions and writes a `WARNING: these questions are not on this form` line to
+the execution log, listing what the form does have.
 
 ## What changed with photo storage
 
@@ -46,14 +60,20 @@ Compared with the scripts before photo storage, the main scripts:
    node scripts/verify-photo-upload.mjs
    ```
 4. Open the form → ⋮ → **Script editor**.
-   - Add a new file `volecule-photos` and paste `volecule-photos.gs`.
-   - Replace the main script with `morning-form.gs` / `evening-form.gs`, then
-     put back your real `INGEST_SECRET` and `SITE_CODE`.
-5. Run **`authorizeVoleculePhotos`** once from the editor and accept the
+   - Add two new files, `volecule-common` and `volecule-photos`, and paste
+     `volecule-common.gs` and `volecule-photos.gs` into them.
+   - Run **`listFormQuestions`** once and read **Execution log**: it prints every
+     question on the form with its exact title (stray spaces shown).
+5. Replace the main script with `morning-form.gs` / `evening-form.gs`, then put
+   back your real `INGEST_SECRET` and `SITE_CODE`, and make the `QUESTIONS`
+   block match what step 4 printed. Delete the line for any question the form
+   doesn't have (for example headcount, if it isn't asked).
+6. Run **`authorizeVoleculePhotos`** once from the editor and accept the
    permission prompt (reading photos from Drive is a new permission). The
    existing "On form submit" trigger keeps working; no need to recreate it.
-6. Submit a test response with a photo, then check **Executions** in the script
-   editor. A healthy run logs `Status: 200` followed by
+7. Submit a test response (with a photo if the form has that question), then
+   check **Executions** in the script editor. There should be no `WARNING`
+   line. A healthy run logs `Status: 200` followed by
    `Photo attach (200): {"ok":true,"attached":[…]}`. In Supabase the object
    appears under `site-photos/{project_code}/{date}/{shift}/`, and the photo
    shows on the log's detail page.
@@ -67,7 +87,8 @@ Compared with the scripts before photo storage, the main scripts:
 | `Photo signing failed (404)`                          | No log for this submission yet — `/submit` didn't store it.                              |
 | `Photo … rejected: unsupported_type` / `too_large`    | Only JPEG/PNG/WebP/HEIC/HEIF up to 20 MB are stored. The original stays in Drive.        |
 | `Photo … upload failed (4xx)`                         | Storage refused the PUT — run `scripts/verify-photo-upload.mjs` to see why.              |
-| `Photo … cannot read from Drive`                      | The authorise step (5) wasn't done, or the script owner can't open the form's files.     |
+| `Photo … cannot read from Drive`                      | The authorise step (6) wasn't done, or the script owner can't open the form's files.     |
+| `WARNING: these questions are not on this form`       | A title in `QUESTIONS` doesn't match the form. The log lists the form's real titles.     |
 
 ## Rotating the shared secret
 
