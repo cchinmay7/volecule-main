@@ -107,7 +107,9 @@ async function main() {
 }
 
 main()
-  .then(() => console.log('\nPASS — Apps Script uploads will work as designed.'))
+  .then(() =>
+    console.log('\nPASS — Apps Script uploads will work as designed.'),
+  )
   .catch((error) => {
     console.error(`\nFAIL — ${error.message}`)
     process.exitCode = 1

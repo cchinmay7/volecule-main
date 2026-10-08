@@ -4,12 +4,12 @@ Source of truth for the Apps Script behind the morning and evening forms. The
 live copies are pasted into each form's own Apps Script project; keep this
 folder in step with them.
 
-| File                 | Goes in                                      |
-| -------------------- | -------------------------------------------- |
-| `morning-form.gs`    | the morning form's script, as the main file  |
-| `evening-form.gs`    | the evening form's script, as the main file  |
-| `volecule-common.gs` | **both** projects, as an extra file          |
-| `volecule-photos.gs` | **both** projects, as an extra file          |
+| File                 | Goes in                                     |
+| -------------------- | ------------------------------------------- |
+| `morning-form.gs`    | the morning form's script, as the main file |
+| `evening-form.gs`    | the evening form's script, as the main file |
+| `volecule-common.gs` | **both** projects, as an extra file         |
+| `volecule-photos.gs` | **both** projects, as an extra file         |
 
 The `.gs` files here hold placeholders, never real values. Keep the secret and
 project code you already have in the live scripts.
@@ -50,8 +50,9 @@ Compared with the scripts before photo storage, the main scripts:
 3. Optional but recommended, once: `node scripts/verify-photo-upload.mjs` confirms
    Storage accepts uploads exactly the way the script sends them. It needs the
    project URL, the publishable key and the service role key (Supabase dashboard
+
    > Project Settings > API). Put them in `.env.local`, or set them for one
-   PowerShell session so nothing is saved to disk:
+   > PowerShell session so nothing is saved to disk:
 
    ```powershell
    $env:NEXT_PUBLIC_SUPABASE_URL = "https://<project-ref>.supabase.co"
@@ -59,6 +60,7 @@ Compared with the scripts before photo storage, the main scripts:
    $env:SUPABASE_SERVICE_ROLE_KEY = "<service role key>"
    node scripts/verify-photo-upload.mjs
    ```
+
 4. Open the form → ⋮ → **Script editor**.
    - Add two new files, `volecule-common` and `volecule-photos`, and paste
      `volecule-common.gs` and `volecule-photos.gs` into them.
@@ -80,15 +82,15 @@ Compared with the scripts before photo storage, the main scripts:
 
 ## Troubleshooting
 
-| Log line                                              | Meaning / fix                                                                             |
-| ----------------------------------------------------- | ----------------------------------------------------------------------------------------- |
-| `Skipping photo sync: the form data was not accepted` | `/submit` failed first (wrong secret or project code). Photos wait; fix and resubmit.    |
-| `Photo signing failed (401)`                          | `INGEST_SECRET` doesn't match `INGESTION_SHARED_SECRET` in Vercel.                       |
-| `Photo signing failed (404)`                          | No log for this submission yet — `/submit` didn't store it.                              |
-| `Photo … rejected: unsupported_type` / `too_large`    | Only JPEG/PNG/WebP/HEIC/HEIF up to 20 MB are stored. The original stays in Drive.        |
-| `Photo … upload failed (4xx)`                         | Storage refused the PUT — run `scripts/verify-photo-upload.mjs` to see why.              |
-| `Photo … cannot read from Drive`                      | The authorise step (6) wasn't done, or the script owner can't open the form's files.     |
-| `WARNING: these questions are not on this form`       | A title in `QUESTIONS` doesn't match the form. The log lists the form's real titles.     |
+| Log line                                              | Meaning / fix                                                                         |
+| ----------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| `Skipping photo sync: the form data was not accepted` | `/submit` failed first (wrong secret or project code). Photos wait; fix and resubmit. |
+| `Photo signing failed (401)`                          | `INGEST_SECRET` doesn't match `INGESTION_SHARED_SECRET` in Vercel.                    |
+| `Photo signing failed (404)`                          | No log for this submission yet — `/submit` didn't store it.                           |
+| `Photo … rejected: unsupported_type` / `too_large`    | Only JPEG/PNG/WebP/HEIC/HEIF up to 20 MB are stored. The original stays in Drive.     |
+| `Photo … upload failed (4xx)`                         | Storage refused the PUT — run `scripts/verify-photo-upload.mjs` to see why.           |
+| `Photo … cannot read from Drive`                      | The authorise step (6) wasn't done, or the script owner can't open the form's files.  |
+| `WARNING: these questions are not on this form`       | A title in `QUESTIONS` doesn't match the form. The log lists the form's real titles.  |
 
 ## Rotating the shared secret
 
