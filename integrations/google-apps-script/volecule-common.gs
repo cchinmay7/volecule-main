@@ -46,15 +46,6 @@ function flattenTitles_(questions) {
   return titles
 }
 
-/** { a: 'x', b: 'y' } -> { a: fn('x'), b: fn('y') } */
-function mapObject_(object, fn) {
-  const result = {}
-  Object.keys(object).forEach(function (key) {
-    result[key] = fn(object[key], key)
-  })
-  return result
-}
-
 /** Logs every configured question title that isn't a question on this form.
  * Checks the form itself (not the response), so a question the engineer
  * simply left blank is not reported. Never throws. */

@@ -22,7 +22,10 @@ function setup(
   formQuestions: Question[],
   answers: Answer[],
   submitStatus = 200,
+  /** Which helper files are present in the Apps Script project. */
+  helpers: { common?: boolean; photos?: boolean } = {},
 ) {
+  const { common = true, photos = true } = helpers
   const calls: { url: string; payload: Record<string, unknown> }[] = []
   const logs: string[] = []
 
@@ -77,9 +80,11 @@ function setup(
   })
 
   vm.runInContext(
-    [read('volecule-common.gs'), read('volecule-photos.gs'), read(script)].join(
-      '\n',
-    ),
+    [
+      ...(common ? [read('volecule-common.gs')] : []),
+      ...(photos ? [read('volecule-photos.gs')] : []),
+      read(script),
+    ].join('\n'),
     context,
   )
 
@@ -287,6 +292,73 @@ describe('morning-form.gs', () => {
     )
     run()
     expect(logs.join('\n')).toContain('Barbenders')
+  })
+})
+
+describe('a project missing its helper files', () => {
+  // A form-submit trigger that throws loses that submission: it never
+  // reaches Volecule. The helpers are conveniences, so the data must go out
+  // whether or not they are present in the project.
+  const evening = [
+    { title: 'Masons', type: 'TEXT' },
+    { title: 'The Tasks that were Completed today', type: 'CHECKBOX' },
+    { title: 'Evening Notes', type: 'PARAGRAPH_TEXT' },
+  ]
+  const answers: Answer[] = [
+    { title: 'Masons', value: '4' },
+    { title: 'The Tasks that were Completed today', value: ['W12 - Slab'] },
+    { title: 'Evening Notes', value: 'Rain after lunch' },
+  ]
+
+  it.each(['evening-form.gs', 'morning-form.gs'] as const)(
+    '%s still sends the form data with no helper files at all',
+    (script) => {
+      const { run, calls, logs } = setup(
+        script,
+        script === 'evening-form.gs' ? evening : [],
+        script === 'evening-form.gs' ? answers : [],
+        200,
+        { common: false, photos: false },
+      )
+
+      expect(() => run()).not.toThrow()
+      expect(calls).toHaveLength(1)
+      expect(calls[0].url).toMatch(/\/google-forms\/submit$/)
+      expect(calls[0].payload).toMatchObject({
+        external_submission_id: 'resp-9',
+        photos_drive: [],
+      })
+
+      // And it says what is missing, so the cause is obvious.
+      const log = logs.join('\n')
+      expect(log).toContain('volecule-common is missing')
+      expect(log).toContain('volecule-photos is missing')
+    },
+  )
+
+  it('keeps the headcount and answers when only the common helper is missing', () => {
+    const { run, calls, logs } = setup(
+      'evening-form.gs',
+      evening,
+      answers,
+      200,
+      { common: false },
+    )
+    run()
+
+    expect(calls[0].payload.form_values).toMatchObject({
+      headcount: { masons: '4', helpers: null },
+      targets_achieved: ['W12 - Slab'],
+      free_notes: 'Rain after lunch',
+    })
+    expect(logs.join('\n')).toContain('volecule-common is missing')
+    expect(logs.join('\n')).not.toContain('volecule-photos is missing')
+  })
+
+  it('stays quiet when both helper files are present', () => {
+    const { run, logs } = setup('evening-form.gs', EVENING_QUESTIONS, [])
+    run()
+    expect(logs.join('\n')).not.toContain('is missing')
   })
 })
 
