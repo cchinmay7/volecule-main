@@ -13,6 +13,7 @@ import { cn } from '@/utils/tailwind'
 import { Suspense } from 'react'
 import { connection } from 'next/server'
 import { unstable_noStore as noStore } from 'next/cache'
+import { formatDateTime } from '@/utils/dates'
 
 type ProjectRow = {
   id: string
@@ -160,7 +161,7 @@ async function LogsContent() {
                     )}
                     <Badge variant="outline">{log.source}</Badge>
                     <span className="text-muted-foreground text-xs">
-                      {new Date(log.created_at).toLocaleString()}
+                      {formatDateTime(log.created_at)}
                     </span>
                   </div>
                 </div>

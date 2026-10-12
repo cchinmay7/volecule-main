@@ -6,7 +6,7 @@ import { createAdminClient } from '@/supabase/admin'
 import { Badge } from '@/components/ui/badge'
 import { buttonVariants } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { toLocalDateString } from '@/utils/dates'
+import { formatDateTime, toLocalDateString } from '@/utils/dates'
 import {
   BROWSER_RENDERABLE_MIME_TYPES,
   PHOTO_BUCKET,
@@ -525,7 +525,7 @@ async function HistoryTab({ project }: { project: ProjectRow }) {
                       {task?.name ?? revision.task_id}
                     </p>
                     <span className="text-muted-foreground text-xs">
-                      {new Date(revision.created_at).toLocaleString()}
+                      {formatDateTime(revision.created_at)}
                     </span>
                   </div>
                   <p className="text-muted-foreground text-xs">
@@ -570,7 +570,7 @@ async function HistoryTab({ project }: { project: ProjectRow }) {
                     )}
                   </div>
                   <span className="text-muted-foreground text-xs">
-                    {new Date(edit.created_at).toLocaleString()}
+                    {formatDateTime(edit.created_at)}
                   </span>
                 </div>
                 {edit.note && <p className="mt-1 text-xs">{edit.note}</p>}

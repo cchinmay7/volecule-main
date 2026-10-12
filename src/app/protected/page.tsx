@@ -4,6 +4,7 @@ import { createClient } from '@/supabase/server'
 import { Suspense } from 'react'
 import { connection } from 'next/server'
 import { unstable_noStore as noStore } from 'next/cache'
+import { formatDateTime } from '@/utils/dates'
 
 type SiteRow = {
   id: string
@@ -171,7 +172,7 @@ async function ProtectedDashboardContent() {
                   <p className="text-muted-foreground mt-2 text-xs">
                     Last submission:{' '}
                     {project.lastSubmittedAt
-                      ? new Date(project.lastSubmittedAt).toLocaleString()
+                      ? formatDateTime(project.lastSubmittedAt)
                       : 'No submissions yet'}
                   </p>
                 </div>

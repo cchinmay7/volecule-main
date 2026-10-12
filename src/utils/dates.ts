@@ -30,3 +30,23 @@ export function isIsoDate(value: string): boolean {
     !Number.isNaN(parsed.getTime()) && parsed.toISOString().startsWith(value)
   )
 }
+
+/** The app's display timezone. Every timestamp shown in the UI is rendered in
+ * IST regardless of where the server or browser happens to run. */
+export const APP_TIMEZONE = 'Asia/Kolkata'
+
+const DATE_TIME_FORMAT = new Intl.DateTimeFormat('en-IN', {
+  timeZone: APP_TIMEZONE,
+  day: 'numeric',
+  month: 'short',
+  year: 'numeric',
+  hour: 'numeric',
+  minute: '2-digit',
+  hour12: true,
+  timeZoneName: 'short',
+})
+
+/** A timestamp formatted for display in IST, e.g. "12 Oct 2026, 1:45 am IST". */
+export function formatDateTime(value: string | number | Date): string {
+  return DATE_TIME_FORMAT.format(new Date(value))
+}
