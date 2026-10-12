@@ -217,6 +217,31 @@ export function computeCascade(
   return results
 }
 
+/** The task state once `seeds` and the cascade they produced have been
+ * applied — what a second pass (a pull after a push) should start from, so
+ * it sees each predecessor's true end rather than the original one. */
+function stateAfterCascade(
+  tasks: Map<string, TaskState>,
+  seeds: CascadeSeed[],
+  changes: CascadeChange[],
+): Map<string, TaskState> {
+  const state = new Map(tasks)
+  for (const seed of seeds) {
+    const current = state.get(seed.taskId)
+    if (current) {
+      state.set(seed.taskId, { ...current, currentEnd: seed.newEnd })
+    }
+  }
+  for (const change of changes) {
+    state.set(change.taskId, {
+      ...(state.get(change.taskId) as TaskState),
+      currentStart: change.newStart,
+      currentEnd: change.newEnd,
+    })
+  }
+  return state
+}
+
 // ---------------------------------------------------------------------------
 // I/O wrappers
 // ---------------------------------------------------------------------------
@@ -778,12 +803,12 @@ export async function applyDelayedEnds({
  * fallback (spec §12 open question (j), which reuses this same function
  * with `changeReason: 'manual_override'` instead of the default). Writes
  * `actual_start`, recomputes `current_planned_end` as
- * `confirmedDate + duration_days`, and cascades the result forward
- * exactly like applyDelayedEnds does. A confirmed start can never land
- * earlier than what cascade math already computed — eligibility requires
- * the predecessor already done, which is exactly what that math keys off
- * — so seeding the same push-mode computeCascade pass is always safe;
- * this never needs a pull.
+ * `confirmedDate + duration_days`, and cascades the result through the
+ * dependents. A start confirmed after its planned start ends later than
+ * planned and pushes them, exactly like applyDelayedEnds does. A start
+ * confirmed on the day a refresh sweep had pushed the task to tomorrow
+ * ends earlier than the pushed window, so what the sweep pushed behind it
+ * is pulled back, but only where every other predecessor allows it.
  */
 export async function applyConfirmedStarts({
   supabase,
@@ -826,7 +851,8 @@ export async function applyConfirmedStarts({
 
   const rootUpdates: TaskUpdate[] = []
   const rootRevisions: Omit<RevisionInsert, 'schedule_version_id'>[] = []
-  const seeds: CascadeSeed[] = []
+  const lateSeeds: CascadeSeed[] = []
+  const earlySeeds: CascadeSeed[] = []
   for (const root of rootTasks) {
     const newEnd = addDaysIso(confirmedDate, root.duration_days)
 
@@ -848,16 +874,35 @@ export async function applyConfirmedStarts({
       trigger_project_log_id: triggerProjectLogId,
       miss_reason: null,
     })
-    seeds.push({ taskId: root.id, newEnd })
+    // A start confirmed late ends later than planned. A start confirmed on
+    // the very day a refresh had pushed the task to tomorrow ends earlier
+    // than the pushed window, and what the refresh pushed behind it has to
+    // come back with it.
+    if (newEnd > root.current_planned_end) {
+      lateSeeds.push({ taskId: root.id, newEnd })
+    } else if (newEnd < root.current_planned_end) {
+      earlySeeds.push({ taskId: root.id, newEnd })
+    }
   }
 
-  const cascadeChanges = computeCascade(
-    graph.tasks,
-    graph.edges,
-    seeds,
-    'push',
-    '', // today is unused in 'push' mode
-  )
+  // Push first, then pull against the post-push state, as completions do.
+  const pushChanges =
+    lateSeeds.length > 0
+      ? computeCascade(graph.tasks, graph.edges, lateSeeds, 'push', '')
+      : []
+  const pullChanges =
+    earlySeeds.length > 0
+      ? computeCascade(
+          stateAfterCascade(graph.tasks, lateSeeds, pushChanges),
+          graph.edges,
+          earlySeeds,
+          'pull',
+          confirmedDate,
+        )
+      : []
+  // A task touched by both passes (a diamond gated by one late and one early
+  // root) takes the pull result: it was computed against the pushed state.
+  const cascadeChanges = [...pushChanges, ...pullChanges]
 
   const persisted = await persistPropagation({
     supabase,
@@ -1132,20 +1177,7 @@ export async function applyTaskCompletions({
   // Fold push results into a working copy before running pull, so pull
   // sees each predecessor's true, post-push state rather than the
   // original one.
-  const stateAfterPush = new Map(graph.tasks)
-  for (const seed of lateSeeds) {
-    const current = stateAfterPush.get(seed.taskId)
-    if (current) {
-      stateAfterPush.set(seed.taskId, { ...current, currentEnd: seed.newEnd })
-    }
-  }
-  for (const change of pushChanges) {
-    stateAfterPush.set(change.taskId, {
-      ...(stateAfterPush.get(change.taskId) as TaskState),
-      currentStart: change.newStart,
-      currentEnd: change.newEnd,
-    })
-  }
+  const stateAfterPush = stateAfterCascade(graph.tasks, lateSeeds, pushChanges)
 
   const pullChanges =
     earlySeeds.length > 0

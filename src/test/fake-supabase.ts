@@ -14,7 +14,7 @@ type FakeResult = { data: unknown; error: { message: string } | null }
  * requests are counted, so a test can also see whether writes are issued
  * concurrently rather than one at a time.
  *
- * Not a general Postgres emulator: filters are limited to eq / in / not-null,
+ * Not a general Postgres emulator: filters are limited to eq / in / is / not-null,
  * and a query only does what the production code under test needs.
  */
 export function createFakeSupabase(
@@ -92,6 +92,10 @@ export function createFakeSupabase(
     }
     in(col: string, vals: unknown[]) {
       this.filters.push((row) => vals.includes(row[col]))
+      return this
+    }
+    is(col: string, val: unknown) {
+      this.filters.push((row) => (row[col] ?? null) === val)
       return this
     }
     not(col: string, _op: string, _val: unknown) {
