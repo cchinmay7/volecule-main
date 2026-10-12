@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge'
 import { buttonVariants } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { formatDateTime, toLocalDateString } from '@/utils/dates'
+import type { EditKind } from '@/utils/logs/edit-history'
 import {
   BROWSER_RENDERABLE_MIME_TYPES,
   PHOTO_BUCKET,
@@ -150,9 +151,9 @@ export default async function UpdatesPage({
       <div>
         <h1 className="text-2xl font-semibold">Updates</h1>
         <p className="text-muted-foreground text-sm">
-          Fix what a site engineer got wrong: correct the schedule, edit a log,
-          remove a photo, or enter a log that was never submitted. Every change
-          is recorded in History.
+          Fix what a site engineer got wrong: correct the schedule, rename a
+          task, edit a log, remove a photo, or enter a log that was never
+          submitted. Every change is recorded in History.
         </p>
       </div>
 
@@ -447,17 +448,27 @@ type RevisionRow = {
 
 type EditRow = {
   id: string
-  kind: 'log_edited' | 'log_created' | 'photo_deleted'
+  kind: EditKind
   note: string | null
   created_at: string
   project_log_id: string | null
   details: Record<string, unknown> | null
 }
 
-const EDIT_LABEL: Record<EditRow['kind'], string> = {
+const EDIT_LABEL: Record<EditKind, string> = {
   log_edited: 'Log edited',
   log_created: 'Missed log entered',
   photo_deleted: 'Photo deleted',
+  task_renamed: 'Task renamed',
+}
+
+/** "W41 — Old name → New name" for a rename; nothing for the other kinds,
+ * whose details are shown on the log itself. */
+function renameSummary(edit: EditRow): string | null {
+  if (edit.kind !== 'task_renamed' || !edit.details) return null
+  const { code, previous, next } = edit.details
+  if (typeof previous !== 'string' || typeof next !== 'string') return null
+  return `${typeof code === 'string' && code ? `${code} — ` : ''}${previous} → ${next}`
 }
 
 async function HistoryTab({ project }: { project: ProjectRow }) {
@@ -544,12 +555,14 @@ async function HistoryTab({ project }: { project: ProjectRow }) {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Log and photo changes</CardTitle>
+          <CardTitle className="text-base">
+            Log, photo and task name changes
+          </CardTitle>
         </CardHeader>
         <CardContent className="space-y-2">
           {edits.length === 0 ? (
             <p className="text-muted-foreground text-sm">
-              No log or photo changes yet.
+              No log, photo or task name changes yet.
             </p>
           ) : (
             edits.map((edit) => (
@@ -573,6 +586,11 @@ async function HistoryTab({ project }: { project: ProjectRow }) {
                     {formatDateTime(edit.created_at)}
                   </span>
                 </div>
+                {renameSummary(edit) && (
+                  <p className="text-muted-foreground mt-1 text-xs">
+                    {renameSummary(edit)}
+                  </p>
+                )}
                 {edit.note && <p className="mt-1 text-xs">{edit.note}</p>}
               </div>
             ))

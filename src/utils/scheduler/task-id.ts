@@ -15,6 +15,9 @@ export function normalizeTaskId(raw: string): string | null {
   return match[1].replace(/[\s-]/g, '').toUpperCase()
 }
 
+/** Longest task name the Updates page accepts when renaming a task. */
+export const MAX_TASK_NAME_LENGTH = 200
+
 const NO_PREDECESSOR_TOKENS = new Set(['', '-', '—', '–', 'none', 'n/a'])
 
 /**

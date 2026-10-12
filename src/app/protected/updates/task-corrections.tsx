@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react'
 import {
   clearTaskStartAction,
   markTaskDoneAction,
+  renameTaskAction,
   reopenTaskAction,
   setTaskDatesAction,
   setTaskStartAction,
@@ -12,6 +13,7 @@ import { CorrectionForm } from '@/app/protected/updates/correction-form'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { MAX_TASK_NAME_LENGTH } from '@/utils/scheduler/task-id'
 
 export type TaskView = {
   id: string
@@ -41,7 +43,46 @@ function formatDate(value: string): string {
   })
 }
 
+/** Everything that can be corrected on a task: its dates and status, then
+ * its name. */
 function Corrections({
+  task,
+  projectId,
+  today,
+}: {
+  task: TaskView
+  projectId: string
+  today: string
+}) {
+  return (
+    <>
+      <ScheduleCorrections task={task} projectId={projectId} today={today} />
+      <CorrectionForm
+        title="Rename task"
+        help={
+          task.ref
+            ? `Changes the name only. The code ${task.ref} stays as it is, and nothing in the schedule moves.`
+            : 'Changes the name only. Nothing in the schedule moves.'
+        }
+        action={renameTaskAction}
+        hidden={{ project_id: projectId, task_id: task.id }}
+        fields={[
+          {
+            name: 'name',
+            label: 'Task name',
+            type: 'text',
+            defaultValue: task.name,
+            maxLength: MAX_TASK_NAME_LENGTH,
+            wide: true,
+          },
+        ]}
+        submitLabel="Save name"
+      />
+    </>
+  )
+}
+
+function ScheduleCorrections({
   task,
   projectId,
   today,
