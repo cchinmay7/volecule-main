@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { isIsoDate } from '@/utils/dates'
+import { recordEdit } from '@/utils/logs/edit-history'
 import { filterEligibleCandidates } from '@/utils/scheduler/gating'
 import {
   addDaysIso,
@@ -8,6 +9,10 @@ import {
   type ManualTaskValues,
   type PropagationOutcome,
 } from '@/utils/scheduler/propagate'
+import {
+  MAX_TASK_NAME_LENGTH,
+  normalizeTaskId,
+} from '@/utils/scheduler/task-id'
 
 /**
  * Operator corrections to the live schedule — what the Updates page calls
@@ -457,4 +462,94 @@ export async function setTaskDates({
       today,
     }),
   )
+}
+
+const RENAME_HISTORY_WARNING =
+  ' (History entry not saved: run db/updates_v2.sql in Supabase.)'
+
+/** True when `name` starts with the task's own code followed by a separator
+ * ("W41 — Column Steel", "W-41: Column Steel"), which would show the code
+ * twice since it is always printed in front of the name. A plain leading
+ * number or word ("38 inch pipe", "Level 2 slab") is a name, not a code. */
+function startsWithOwnCode(name: string, code: string): boolean {
+  const leading = name.match(/^\s*([A-Za-z]*[\s-]?\d+)\s*[-–—:]/)
+  return (
+    leading !== null && normalizeTaskId(leading[1]) === normalizeTaskId(code)
+  )
+}
+
+/**
+ * Changes a task's name, and only its name. The code (external_ref, such as
+ * W41) is what the forms and the schedule import match on, so it is never
+ * touched here, and nothing about the plan moves: no dates, no cascade, no
+ * new schedule version. Past versions keep the name they had, since they are
+ * a record of what the plan said at the time.
+ *
+ * A done task can be renamed too. The change is recorded in the operator's
+ * history (best-effort, like log edits).
+ */
+export async function renameTask({
+  supabase,
+  projectId,
+  taskId,
+  name,
+  userId,
+  note,
+}: Base & {
+  name: string
+  userId: string
+  note: string | null
+}): Promise<CorrectionResult> {
+  const nextName = name.replace(/\s+/g, ' ').trim()
+  if (nextName === '') {
+    return { ok: false, error: 'Enter a name for the task.' }
+  }
+  if (nextName.length > MAX_TASK_NAME_LENGTH) {
+    return {
+      ok: false,
+      error: `Keep the name to ${MAX_TASK_NAME_LENGTH} characters or fewer.`,
+    }
+  }
+
+  const loaded = await loadTask(supabase, projectId, taskId)
+  if (!loaded.ok) return loaded
+  const { task } = loaded
+
+  if (task.external_ref && startsWithOwnCode(nextName, task.external_ref)) {
+    return {
+      ok: false,
+      error: `Leave the code out of the name. ${task.external_ref} is shown in front of it automatically.`,
+    }
+  }
+
+  const previousName = task.name
+  if (nextName === previousName) {
+    return { ok: true, message: 'Nothing changed.' }
+  }
+
+  const { error } = await supabase
+    .from('schedule_tasks')
+    .update({ name: nextName })
+    .eq('id', taskId)
+    .eq('project_id', projectId)
+  if (error) return { ok: false, error: error.message }
+
+  const recorded = await recordEdit(supabase, {
+    projectId,
+    logId: null,
+    userId,
+    kind: 'task_renamed',
+    details: {
+      task_id: taskId,
+      code: task.external_ref,
+      previous: previousName,
+      next: nextName,
+    },
+    note,
+  })
+
+  return {
+    ok: true,
+    message: `Renamed.${task.external_ref ? ` The code ${task.external_ref} is unchanged.` : ''}${recorded ? '' : RENAME_HISTORY_WARNING}`,
+  }
 }

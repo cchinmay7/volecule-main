@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { isIsoDate } from '@/utils/dates'
+import { recordEdit } from '@/utils/logs/edit-history'
 import { PHOTO_BUCKET } from '@/utils/photos/photo-naming'
 import { removePhotoObjects } from '@/utils/photos/photo-storage'
 import { ingestFormSubmission } from '@/utils/scheduler/ingest-submission'
@@ -27,32 +28,6 @@ export type LogCorrectionResult =
 
 const HISTORY_WARNING =
   ' (History entry not saved: run db/updates_v1.sql in Supabase.)'
-
-async function recordEdit(
-  supabase: SupabaseClient,
-  edit: {
-    projectId: string
-    logId: string | null
-    userId: string
-    kind: 'log_edited' | 'log_created' | 'photo_deleted'
-    details: Record<string, unknown>
-    note: string | null
-  },
-): Promise<boolean> {
-  const { error } = await supabase.from('project_log_edits').insert({
-    project_id: edit.projectId,
-    project_log_id: edit.logId,
-    edited_by: edit.userId,
-    kind: edit.kind,
-    details: edit.details,
-    note: edit.note,
-  })
-  if (error) {
-    console.error('[updates] failed to record log edit', error)
-    return false
-  }
-  return true
-}
 
 function clean(value: string | null | undefined): string | null {
   const trimmed = (value ?? '').trim()

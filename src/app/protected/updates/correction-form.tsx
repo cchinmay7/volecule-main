@@ -5,6 +5,7 @@ import type { UpdateActionState } from '@/app/protected/updates/actions'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { cn } from '@/utils/tailwind'
 
 export type CorrectionField = {
   name: string
@@ -14,6 +15,9 @@ export type CorrectionField = {
   readOnly?: boolean
   required?: boolean
   max?: string
+  maxLength?: number
+  /** A free-text field that needs room, such as a task name. */
+  wide?: boolean
 }
 
 type CorrectionAction = (
@@ -60,7 +64,10 @@ export function CorrectionForm({
 
       <div className="flex flex-wrap items-end gap-2">
         {fields.map((f) => (
-          <div key={f.name} className="space-y-1">
+          <div
+            key={f.name}
+            className={cn('space-y-1', f.wide && 'min-w-[240px] flex-[2]')}
+          >
             <Label htmlFor={`${id}-${f.name}`} className="text-xs">
               {f.label}
             </Label>
@@ -72,8 +79,9 @@ export function CorrectionForm({
               readOnly={f.readOnly}
               required={f.required ?? true}
               max={f.max}
+              maxLength={f.maxLength}
               disabled={pending}
-              className="h-8 w-[150px] text-xs"
+              className={cn('h-8 text-xs', f.wide ? 'w-full' : 'w-[150px]')}
             />
           </div>
         ))}

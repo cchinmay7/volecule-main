@@ -12,6 +12,7 @@ import {
 import {
   clearTaskStart,
   markTaskDone,
+  renameTask,
   reopenTask,
   setTaskDates,
   setTaskStart,
@@ -168,6 +169,22 @@ export async function setTaskDatesAction(
       end: field(formData, 'end'),
       note: optionalField(formData, 'note'),
       today,
+    }),
+  )
+}
+
+export async function renameTaskAction(
+  _prev: UpdateActionState | null,
+  formData: FormData,
+): Promise<UpdateActionState> {
+  return withProject(formData, ({ admin, projectId, userId }) =>
+    renameTask({
+      supabase: admin,
+      projectId,
+      taskId: field(formData, 'task_id'),
+      name: field(formData, 'name'),
+      userId,
+      note: optionalField(formData, 'note'),
     }),
   )
 }
