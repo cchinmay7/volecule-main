@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { formatDateTime } from '@/utils/dates'
 
 type SiteDetails = {
   id: string
@@ -120,7 +121,7 @@ export function SiteDetailView({
           <div className="space-y-2">
             <Label>Created at</Label>
             <p className="text-muted-foreground border-input rounded-md border px-3 py-2 text-sm">
-              {new Date(site.created_at).toLocaleString()}
+              {formatDateTime(site.created_at)}
             </p>
           </div>
         </div>

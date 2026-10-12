@@ -14,6 +14,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { ImportScheduleForm } from '@/app/protected/scheduler/import-schedule-form'
+import { formatDateTime } from '@/utils/dates'
 
 type ProjectDetails = {
   id: string
@@ -247,7 +248,7 @@ export function ProjectDetailView({
         <div className="space-y-2">
           <Label>Created at</Label>
           <p className="text-muted-foreground border-input rounded-md border px-3 py-2 text-sm">
-            {new Date(project.created_at).toLocaleString()}
+            {formatDateTime(project.created_at)}
           </p>
         </div>
 

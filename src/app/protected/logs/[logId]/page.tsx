@@ -12,6 +12,7 @@ import { getPhotoReadUrls } from '@/utils/photos/photo-storage'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { formatDateTime } from '@/utils/dates'
 
 type LogRow = {
   id: string
@@ -145,7 +146,7 @@ export default async function LogDetailsPage({ params }: LogDetailsPageProps) {
             <Badge variant="outline">{typedLog.shift}</Badge>
             <Badge variant="outline">{typedLog.source}</Badge>
             <span className="text-muted-foreground text-xs">
-              {new Date(typedLog.created_at).toLocaleString()}
+              {formatDateTime(typedLog.created_at)}
             </span>
           </div>
 
