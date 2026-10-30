@@ -17,12 +17,15 @@ import {
   setTaskDates,
   setTaskStart,
 } from '@/utils/scheduler/corrections'
+import { parseScheduleWorkbook } from '@/utils/scheduler/parse-excel'
+import { replanSchedule } from '@/utils/scheduler/replan-schedule'
+import { addTask, deleteTask } from '@/utils/scheduler/task-structure'
 
 /**
  * Server actions behind the Updates page. They authenticate the operator,
- * pull the fields out of the form, and hand off to the tested correction
- * functions in utils/scheduler/corrections.ts and utils/logs/
- * log-corrections.ts; the rules live there, not here.
+ * pull the fields out of the form, and hand off to the tested functions in
+ * utils/scheduler/corrections.ts, task-structure.ts, replan-schedule.ts and
+ * utils/logs/log-corrections.ts; the rules live there, not here.
  */
 
 export type UpdateActionState =
@@ -245,6 +248,80 @@ export async function submitMissedLogAction(
       escalate: formData.get('escalate') === 'on',
       note: optionalField(formData, 'note'),
       today,
+    }),
+  )
+}
+
+export async function addTaskAction(
+  _prev: UpdateActionState | null,
+  formData: FormData,
+): Promise<UpdateActionState> {
+  return withProject(formData, ({ admin, projectId, userId, today }) =>
+    addTask({
+      supabase: admin,
+      projectId,
+      code: field(formData, 'code'),
+      name: field(formData, 'name'),
+      start: optionalField(formData, 'start'),
+      durationDays: Number(field(formData, 'duration_days')),
+      parentIds: formData.getAll('parent_id').map((value) => value.toString()),
+      childIds: formData.getAll('child_id').map((value) => value.toString()),
+      userId,
+      note: optionalField(formData, 'note'),
+      today,
+    }),
+  )
+}
+
+export async function deleteTaskAction(
+  _prev: UpdateActionState | null,
+  formData: FormData,
+): Promise<UpdateActionState> {
+  return withProject(formData, ({ admin, projectId, userId, today }) =>
+    deleteTask({
+      supabase: admin,
+      projectId,
+      taskId: field(formData, 'task_id'),
+      reconnect: formData.get('reconnect') === 'on',
+      userId,
+      note: optionalField(formData, 'note'),
+      today,
+    }),
+  )
+}
+
+/** Uploads a new schedule. mode=preview only checks it and says what would
+ * change; mode=apply replaces every task not yet started. */
+export async function replanScheduleAction(
+  _prev: UpdateActionState | null,
+  formData: FormData,
+): Promise<UpdateActionState> {
+  const file = formData.get('file')
+  if (!(file instanceof File) || file.size === 0) {
+    return { success: false, error: 'Choose the schedule file (.xlsx).' }
+  }
+  const parsed = await parseScheduleWorkbook(
+    Buffer.from(await file.arrayBuffer()),
+  )
+  if (!parsed.ok) {
+    return {
+      success: false,
+      error: parsed.errors
+        .map((e) => (e.row > 0 ? `Row ${e.row}: ${e.message}` : e.message))
+        .join('\n'),
+    }
+  }
+
+  return withProject(formData, ({ admin, projectId, userId, today }) =>
+    replanSchedule({
+      supabase: admin,
+      projectId,
+      sheet: parsed.tasks,
+      filename: file.name,
+      userId,
+      note: optionalField(formData, 'note'),
+      today,
+      preview: field(formData, 'mode') !== 'apply',
     }),
   )
 }

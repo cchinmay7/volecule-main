@@ -18,6 +18,9 @@ export function normalizeTaskId(raw: string): string | null {
 /** Longest task name the Updates page accepts when renaming a task. */
 export const MAX_TASK_NAME_LENGTH = 200
 
+/** Longest a task added by hand on the Updates page may run. */
+export const MAX_TASK_DURATION_DAYS = 3650
+
 const NO_PREDECESSOR_TOKENS = new Set(['', '-', '—', '–', 'none', 'n/a'])
 
 /**

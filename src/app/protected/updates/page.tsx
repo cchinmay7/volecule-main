@@ -20,8 +20,10 @@ import {
 } from '@/utils/scheduler/derive-status'
 import { addDaysIso } from '@/utils/scheduler/propagate'
 import { cn } from '@/utils/tailwind'
+import { AddTaskForm } from './add-task-form'
 import { LogEditor, type LogView } from './log-editor'
 import { MissedLogForm } from './missed-log-form'
+import { ReplanForm } from './replan-form'
 import { TaskCorrections, type TaskView } from './task-corrections'
 
 type SearchParams = Promise<{ project?: string; tab?: string }>
@@ -151,9 +153,10 @@ export default async function UpdatesPage({
       <div>
         <h1 className="text-2xl font-semibold">Updates</h1>
         <p className="text-muted-foreground text-sm">
-          Fix what a site engineer got wrong: correct the schedule, rename a
-          task, edit a log, remove a photo, or enter a log that was never
-          submitted. Every change is recorded in History.
+          Fix what a site engineer got wrong: correct the schedule, add, rename
+          or delete a task, upload a new schedule, edit a log, remove a photo,
+          or enter a log that was never submitted. Every change is recorded in
+          History.
         </p>
       </div>
 
@@ -276,30 +279,65 @@ async function TasksTab({ project }: { project: ProjectRow }) {
   })
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-base">
-          Schedule corrections — {project.name}
-        </CardTitle>
-        <p className="text-muted-foreground text-sm">
-          Tasks that follow a corrected task move automatically. Today is{' '}
-          {today} for this project.
-        </p>
-      </CardHeader>
-      <CardContent>
-        {error ? (
-          <p className="text-destructive text-sm">
-            Could not load the schedule.
-          </p>
-        ) : tasks.length === 0 ? (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">
+            Schedule corrections — {project.name}
+          </CardTitle>
           <p className="text-muted-foreground text-sm">
-            No schedule imported for this project yet.
+            Tasks that follow a corrected task move automatically. Today is{' '}
+            {today} for this project.
           </p>
-        ) : (
-          <TaskCorrections tasks={views} projectId={project.id} today={today} />
-        )}
-      </CardContent>
-    </Card>
+        </CardHeader>
+        <CardContent>
+          {error ? (
+            <p className="text-destructive text-sm">
+              Could not load the schedule.
+            </p>
+          ) : tasks.length === 0 ? (
+            <p className="text-muted-foreground text-sm">
+              No schedule imported for this project yet.
+            </p>
+          ) : (
+            <TaskCorrections
+              tasks={views}
+              projectId={project.id}
+              today={today}
+            />
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Add a task</CardTitle>
+          <p className="text-muted-foreground text-sm">
+            Pick any number of parents (finish first) and children (start
+            after). To delete a task, open it above with Correct.
+          </p>
+        </CardHeader>
+        <CardContent>
+          <AddTaskForm tasks={views} projectId={project.id} />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Upload a new schedule</CardTitle>
+          <p className="text-muted-foreground text-sm">
+            Keeps every task that has started or finished, and rebuilds the rest
+            from the sheet. It picks up after the tasks in progress (or the last
+            task finished, if none is). Those tasks must be in the sheet with
+            the same code and name, or nothing changes. Check the sheet first to
+            see what would happen.
+          </p>
+        </CardHeader>
+        <CardContent>
+          <ReplanForm projectId={project.id} />
+        </CardContent>
+      </Card>
+    </div>
   )
 }
 
@@ -460,15 +498,39 @@ const EDIT_LABEL: Record<EditKind, string> = {
   log_created: 'Missed log entered',
   photo_deleted: 'Photo deleted',
   task_renamed: 'Task renamed',
+  task_added: 'Task added',
+  task_deleted: 'Task deleted',
+  schedule_replanned: 'New schedule uploaded',
 }
 
-/** "W41 — Old name → New name" for a rename; nothing for the other kinds,
- * whose details are shown on the log itself. */
-function renameSummary(edit: EditRow): string | null {
-  if (edit.kind !== 'task_renamed' || !edit.details) return null
-  const { code, previous, next } = edit.details
-  if (typeof previous !== 'string' || typeof next !== 'string') return null
-  return `${typeof code === 'string' && code ? `${code} — ` : ''}${previous} → ${next}`
+function codes(value: unknown): string {
+  const list = stringList(value)
+  return list.length > 0 ? list.join(', ') : 'none'
+}
+
+/** One line on what a task or schedule change did ("W41 — Old name → New
+ * name" for a rename); nothing for the log kinds, whose details are shown on
+ * the log itself. */
+function editSummary(edit: EditRow): string | null {
+  if (!edit.details) return null
+  const details = edit.details
+  const prefix =
+    typeof details.code === 'string' && details.code ? `${details.code} — ` : ''
+
+  if (edit.kind === 'task_renamed') {
+    const { previous, next } = details
+    if (typeof previous !== 'string' || typeof next !== 'string') return null
+    return `${prefix}${previous} → ${next}`
+  }
+  if (edit.kind === 'task_added' || edit.kind === 'task_deleted') {
+    if (typeof details.name !== 'string') return null
+    return `${prefix}${details.name} · parents: ${codes(details.parents)} · children: ${codes(details.children)}`
+  }
+  if (edit.kind === 'schedule_replanned') {
+    const anchors = stringList(details.anchors)
+    return `${anchors.length > 0 ? `After ${anchors.join(', ')}: ` : ''}kept ${details.kept}, removed ${details.removed}, added ${details.added}`
+  }
+  return null
 }
 
 async function HistoryTab({ project }: { project: ProjectRow }) {
@@ -556,13 +618,13 @@ async function HistoryTab({ project }: { project: ProjectRow }) {
       <Card>
         <CardHeader>
           <CardTitle className="text-base">
-            Log, photo and task name changes
+            Log, photo, task and schedule changes
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-2">
           {edits.length === 0 ? (
             <p className="text-muted-foreground text-sm">
-              No log, photo or task name changes yet.
+              No log, photo, task or schedule changes yet.
             </p>
           ) : (
             edits.map((edit) => (
@@ -586,9 +648,9 @@ async function HistoryTab({ project }: { project: ProjectRow }) {
                     {formatDateTime(edit.created_at)}
                   </span>
                 </div>
-                {renameSummary(edit) && (
+                {editSummary(edit) && (
                   <p className="text-muted-foreground mt-1 text-xs">
-                    {renameSummary(edit)}
+                    {editSummary(edit)}
                   </p>
                 )}
                 {edit.note && <p className="mt-1 text-xs">{edit.note}</p>}
