@@ -2,7 +2,8 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 
 /**
  * The operator's change history for things the schedule's own revision log
- * doesn't cover: edits to a log, a deleted photo, a renamed task. One row in
+ * doesn't cover: edits to a log, a deleted photo, a task renamed, added or
+ * deleted, a schedule rebuilt from a new spreadsheet. One row in
  * project_log_edits per action, holding what changed and the operator's note.
  *
  * Writing the row is best-effort. If the table, or a newer kind it doesn't
@@ -15,6 +16,9 @@ export type EditKind =
   | 'log_created'
   | 'photo_deleted'
   | 'task_renamed'
+  | 'task_added'
+  | 'task_deleted'
+  | 'schedule_replanned'
 
 export async function recordEdit(
   supabase: SupabaseClient,

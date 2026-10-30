@@ -471,7 +471,7 @@ const RENAME_HISTORY_WARNING =
  * ("W41 — Column Steel", "W-41: Column Steel"), which would show the code
  * twice since it is always printed in front of the name. A plain leading
  * number or word ("38 inch pipe", "Level 2 slab") is a name, not a code. */
-function startsWithOwnCode(name: string, code: string): boolean {
+export function startsWithOwnCode(name: string, code: string): boolean {
   const leading = name.match(/^\s*([A-Za-z]*[\s-]?\d+)\s*[-–—:]/)
   return (
     leading !== null && normalizeTaskId(leading[1]) === normalizeTaskId(code)

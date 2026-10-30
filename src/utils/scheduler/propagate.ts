@@ -439,7 +439,7 @@ async function createPropagationVersion(
  * schedule_version_tasks under the given version — same pattern as the
  * last step of importSchedule. Call this AFTER all schedule_tasks writes
  * for the run have landed. */
-async function snapshotVersion(
+export async function snapshotVersion(
   supabase: SupabaseClient,
   projectId: string,
   versionId: string,
@@ -1354,5 +1354,67 @@ export async function applyManualOverride({
     success: true,
     versionNumber: persisted.versionNumber,
     tasksChanged: 1 + persisted.cascadedCount,
+  }
+}
+
+/**
+ * Re-settles the plan after its shape changed (a task added or deleted, an
+ * edge added): every dependent of `seedTaskIds` that now starts before one
+ * of them ends is pushed later, transitively, exactly as a delay would push
+ * it. Nothing is ever pulled earlier — removing a predecessor doesn't
+ * second-guess the dates the operator left in place.
+ *
+ * Always cuts a new schedule version and snapshot, even when nothing moves,
+ * so the version history shows the structural change.
+ */
+export async function applyStructureChange({
+  supabase,
+  projectId,
+  seedTaskIds,
+  versionLabel,
+  note,
+  today,
+}: {
+  supabase: SupabaseClient
+  projectId: string
+  seedTaskIds: string[]
+  versionLabel: string
+  note: string | null
+  today: string
+}): Promise<PropagationOutcome> {
+  const graph = await fetchProjectGraph(supabase, projectId)
+  if (!graph.ok) {
+    return { success: false, error: graph.error }
+  }
+
+  const seeds: CascadeSeed[] = seedTaskIds.flatMap((taskId) => {
+    const task = graph.tasks.get(taskId)
+    return task ? [{ taskId, newEnd: task.currentEnd }] : []
+  })
+  const cascadeChanges =
+    seeds.length > 0
+      ? computeCascade(graph.tasks, graph.edges, seeds, 'push', today)
+      : []
+
+  const persisted = await persistPropagation({
+    supabase,
+    projectId,
+    versionLabel,
+    rootUpdates: [],
+    rootRevisions: [],
+    cascadeChanges,
+    originalState: graph.tasks,
+    changeReason: 'manual_override',
+    triggerProjectLogId: null,
+    missReason: note,
+  })
+  if (!persisted.ok) {
+    return { success: false, error: persisted.error }
+  }
+
+  return {
+    success: true,
+    versionNumber: persisted.versionNumber,
+    tasksChanged: persisted.cascadedCount,
   }
 }

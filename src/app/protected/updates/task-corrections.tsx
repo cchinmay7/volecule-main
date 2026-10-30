@@ -1,8 +1,9 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useActionState, useId, useMemo, useState } from 'react'
 import {
   clearTaskStartAction,
+  deleteTaskAction,
   markTaskDoneAction,
   renameTaskAction,
   reopenTaskAction,
@@ -13,6 +14,7 @@ import { CorrectionForm } from '@/app/protected/updates/correction-form'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { MAX_TASK_NAME_LENGTH } from '@/utils/scheduler/task-id'
 
 export type TaskView = {
@@ -44,7 +46,7 @@ function formatDate(value: string): string {
 }
 
 /** Everything that can be corrected on a task: its dates and status, then
- * its name. */
+ * its name, then deleting it. */
 function Corrections({
   task,
   projectId,
@@ -78,7 +80,89 @@ function Corrections({
         ]}
         submitLabel="Save name"
       />
+      <DeleteTaskForm task={task} projectId={projectId} />
     </>
+  )
+}
+
+/** Deletes the task, optionally linking the tasks after it to the ones
+ * before it so the order around the gap holds. Asks before deleting. */
+function DeleteTaskForm({
+  task,
+  projectId,
+}: {
+  task: TaskView
+  projectId: string
+}) {
+  const [state, formAction, pending] = useActionState(deleteTaskAction, null)
+  const id = useId()
+  const name = task.ref ?? task.name
+
+  return (
+    <form
+      action={formAction}
+      onSubmit={(event) => {
+        if (!window.confirm(`Delete ${name}? This can't be undone.`)) {
+          event.preventDefault()
+        }
+      }}
+      className="bg-background space-y-2 rounded-md border p-3"
+    >
+      <input type="hidden" name="project_id" value={projectId} />
+      <input type="hidden" name="task_id" value={task.id} />
+
+      <div>
+        <p className="text-sm font-medium">Delete task</p>
+        <p className="text-muted-foreground text-xs">
+          Removes it from the plan, with its date history.
+          {task.status === 'done' || task.actualStart
+            ? ' It has already started, so its record on site goes too.'
+            : ''}
+        </p>
+      </div>
+
+      <div className="flex flex-wrap items-end gap-2">
+        <div className="flex items-center gap-2 self-center">
+          <input
+            id={`${id}-reconnect`}
+            type="checkbox"
+            name="reconnect"
+            defaultChecked
+            disabled={pending}
+          />
+          <label htmlFor={`${id}-reconnect`} className="text-xs">
+            Link the tasks after it to the tasks before it
+          </label>
+        </div>
+        <div className="min-w-[180px] flex-1 space-y-1">
+          <Label htmlFor={`${id}-note`} className="text-xs">
+            Note (why)
+          </Label>
+          <Input
+            id={`${id}-note`}
+            name="note"
+            placeholder="Optional"
+            disabled={pending}
+            className="h-8 text-xs"
+          />
+        </div>
+        <Button
+          type="submit"
+          size="sm"
+          variant="destructive"
+          disabled={pending}
+        >
+          {pending ? 'Deleting…' : 'Delete task'}
+        </Button>
+      </div>
+
+      {state && !state.success && (
+        <p className="text-destructive text-xs">{state.error}</p>
+      )}
+      {state?.success && (
+        <p className="text-xs text-green-600">{state.message}</p>
+      )}
+    </form>
   )
 }
 

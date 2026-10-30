@@ -12,6 +12,7 @@ const actions = vi.hoisted(() => {
     setTaskDatesAction: ok(),
     setTaskStartAction: ok(),
     clearTaskStartAction: ok(),
+    deleteTaskAction: ok(),
   }
 })
 vi.mock('@/app/protected/updates/actions', () => actions)
@@ -110,5 +111,40 @@ describe('Rename task on the Tasks tab', () => {
     await userEvent.type(screen.getByLabelText('Find a task'), 'level 3')
 
     expect(screen.getByText(/Column Shuttering - Level 3/)).toBeInTheDocument()
+  })
+})
+
+describe('Delete task on the Tasks tab', () => {
+  it('asks first, then sends the task and the relink choice', async () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    await openCorrections(view({}))
+
+    const form = screen
+      .getByRole('button', { name: 'Delete task' })
+      .closest('form') as HTMLElement
+    await userEvent.click(
+      within(form).getByRole('button', { name: 'Delete task' }),
+    )
+
+    expect(confirm).toHaveBeenCalledWith("Delete W41? This can't be undone.")
+    expect(actions.deleteTaskAction).toHaveBeenCalledTimes(1)
+    const sent = actions.deleteTaskAction.mock.calls[0] as unknown as [
+      unknown,
+      FormData,
+    ]
+    expect(sent[1].get('task_id')).toBe('task-41')
+    expect(sent[1].get('reconnect')).toBe('on')
+    confirm.mockRestore()
+  })
+
+  it('does nothing when the operator cancels', async () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    actions.deleteTaskAction.mockClear()
+    await openCorrections(view({}))
+
+    await userEvent.click(screen.getByRole('button', { name: 'Delete task' }))
+
+    expect(actions.deleteTaskAction).not.toHaveBeenCalled()
+    confirm.mockRestore()
   })
 })
